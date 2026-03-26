@@ -15,6 +15,7 @@ final class MenuBarController {
     private let speedMapper: SpeedMapper
     private let engine: TokenUsageEngine
     private var popover: NSPopover?
+    private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
 
@@ -79,25 +80,32 @@ final class MenuBarController {
         let idle = speedMapper.isIdle(tokensPerSecond: state.tokensPerSecond)
         animator.update(interval: interval, idle: idle)
 
-        // Update tooltip with current stats
+        // Update tooltip
+        let showCost = UserDefaults.standard.object(forKey: "showCostInTooltip") as? Bool ?? true
         let tier = speedMapper.speedTier(for: state.tokensPerSecond)
-        let cost = CostCalculator.formatCost(state.todayUsage.estimatedCost)
-        statusItem?.button?.toolTip = "RunClaude — \(tier) (\(Int(state.tokensPerSecond)) tok/s) | Today: \(cost)"
+        var tooltip = "RunClaude — \(tier)"
+        if state.tokensPerSecond >= 1 {
+            tooltip += " (\(Int(state.tokensPerSecond)) tok/s)"
+        }
+        if showCost {
+            tooltip += " | Today: \(CostCalculator.formatCost(state.todayUsage.estimatedCost))"
+        }
+        statusItem?.button?.toolTip = tooltip
     }
 
-    // MARK: - Popover
+    // MARK: - Click Handling
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         let event = NSApp.currentEvent
 
         if event?.type == .rightMouseUp {
-            // Right-click: show context menu
             showContextMenu()
         } else {
-            // Left-click: toggle popover
             togglePopover()
         }
     }
+
+    // MARK: - Popover
 
     private func togglePopover() {
         if let popover = popover, popover.isShown {
@@ -110,7 +118,7 @@ final class MenuBarController {
 
     private func showPopover() {
         let popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 400)
+        popover.contentSize = NSSize(width: 320, height: 420)
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = NSHostingController(
@@ -137,26 +145,36 @@ final class MenuBarController {
         }
     }
 
+    // MARK: - Context Menu
+
     private func showContextMenu() {
         let menu = NSMenu()
 
         // Speed info
         let speedItem = NSMenuItem(
-            title: "Speed: \(speedMapper.speedTier(for: engine.state.tokensPerSecond)) (\(Int(engine.state.tokensPerSecond)) tok/s)",
+            title: "\(speedMapper.speedTier(for: engine.state.tokensPerSecond).capitalized)"
+                + (engine.state.tokensPerSecond >= 1 ? " — \(Int(engine.state.tokensPerSecond)) tok/s" : ""),
             action: nil,
             keyEquivalent: ""
         )
         speedItem.isEnabled = false
         menu.addItem(speedItem)
 
-        // Cost info
+        // Today's cost
         let costItem = NSMenuItem(
-            title: "Today: \(CostCalculator.formatCost(engine.state.todayUsage.estimatedCost))",
+            title: "Today: \(CostCalculator.formatCost(engine.state.todayUsage.estimatedCost)) (\(formatTokenCount(engine.state.todayUsage.totalTokens)) tokens)",
             action: nil,
             keyEquivalent: ""
         )
         costItem.isEnabled = false
         menu.addItem(costItem)
+
+        menu.addItem(.separator())
+
+        // Settings
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
@@ -168,13 +186,50 @@ final class MenuBarController {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
 
-        // Remove the menu after it closes so left-click works again
+        // Remove the menu after it closes so left-click popover works again
         DispatchQueue.main.async { [weak self] in
             self?.statusItem?.menu = nil
         }
     }
 
+    // MARK: - Settings Window
+
+    @objc private func openSettings() {
+        // If window exists and is visible, just bring it front
+        if let window = settingsWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let settingsView = SettingsView()
+        let hostingController = NSHostingController(rootView: settingsView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "RunClaude Settings"
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+
+        // Bring our accessory app to front so the window is visible
+        NSApp.activate(ignoringOtherApps: true)
+
+        self.settingsWindow = window
+    }
+
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+
+    // MARK: - Helpers
+
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        } else if count >= 1_000 {
+            return String(format: "%.1fK", Double(count) / 1_000)
+        }
+        return "\(count)"
     }
 }

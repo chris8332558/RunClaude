@@ -4,109 +4,179 @@ import AppKit
 
 /// Generates menu bar sprite frames programmatically.
 ///
-/// Phase 1 uses procedural drawing (no external image assets needed).
-/// The sprites are drawn as template images so macOS automatically
-/// adapts them to light/dark menu bar.
-///
-/// Replace this with hand-crafted or AI-generated sprite sheets in Phase 3.
+/// The character is inspired by Claude's visual identity — a rounded,
+/// friendly shape reminiscent of the Claude logo's warm aesthetic.
+/// The body is a rounded capsule/bean shape with small legs and
+/// a subtle "sparkle" eye. Drawn as template images so macOS
+/// automatically adapts to light/dark menu bar.
 struct SpriteGenerator {
 
-    /// The size of each frame in points.
-    static let frameSize = NSSize(width: 18, height: 18)
+    /// The size of each frame in points (menu bar standard height ~22pt, so 18pt with padding).
+    static let frameSize = NSSize(width: 20, height: 18)
 
-    /// Generate the running animation frames.
-    /// Returns an array of NSImage template images forming a run cycle.
-    static func generateRunFrames(count: Int = 8) -> [NSImage] {
+    /// Generate the running animation frames (smooth 10-frame run cycle).
+    static func generateRunFrames(count: Int = 10) -> [NSImage] {
         (0..<count).map { frameIndex in
             let phase = Double(frameIndex) / Double(count)
             return drawRunFrame(phase: phase)
         }
     }
 
-    /// Generate the idle animation frames (gentle floating/breathing).
-    static func generateIdleFrames(count: Int = 4) -> [NSImage] {
+    /// Generate the idle animation frames (gentle breathing/bobbing).
+    static func generateIdleFrames(count: Int = 6) -> [NSImage] {
         (0..<count).map { frameIndex in
             let phase = Double(frameIndex) / Double(count)
             return drawIdleFrame(phase: phase)
         }
     }
 
-    // MARK: - Run Cycle Drawing
+    // MARK: - Character Drawing Primitives
 
-    /// Draw a single frame of the run cycle.
-    /// The character is a simple stick figure with a round head,
-    /// with leg and arm positions varying by phase.
+    /// Draw the Claude-inspired body shape: a rounded bean/capsule.
+    /// `tilt` rotates the body slightly for run-cycle lean.
+    /// `squash` compresses vertically (< 1.0) for bounce frames.
+    private static func drawBody(
+        in context: NSRect,
+        centerX: CGFloat,
+        bodyBottom: CGFloat,
+        bodyHeight: CGFloat,
+        bodyWidth: CGFloat,
+        tilt: CGFloat = 0,
+        squash: CGFloat = 1.0
+    ) {
+        let adjustedHeight = bodyHeight * squash
+        let adjustedWidth = bodyWidth * (1.0 + (1.0 - squash) * 0.3) // stretch width when squashed
+
+        // Rounded rectangle body (capsule shape)
+        let bodyRect = NSRect(
+            x: centerX - adjustedWidth / 2 + tilt * 0.5,
+            y: bodyBottom,
+            width: adjustedWidth,
+            height: adjustedHeight
+        )
+        let cornerRadius = min(adjustedWidth, adjustedHeight) * 0.4
+        let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
+        NSColor.black.setFill()
+        bodyPath.fill()
+    }
+
+    /// Draw the character's face: a simple dot eye and small highlight.
+    private static func drawFace(
+        centerX: CGFloat,
+        faceY: CGFloat,
+        bodyWidth: CGFloat,
+        lookDirection: CGFloat = 1.0  // 1.0 = right, -1.0 = left
+    ) {
+        // Eye (small filled circle, offset in look direction)
+        let eyeRadius: CGFloat = 1.2
+        let eyeOffsetX: CGFloat = bodyWidth * 0.12 * lookDirection
+        let eyeRect = NSRect(
+            x: centerX + eyeOffsetX - eyeRadius,
+            y: faceY - eyeRadius,
+            width: eyeRadius * 2,
+            height: eyeRadius * 2
+        )
+
+        // Draw the eye as a "cutout" (white circle on the dark body)
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: eyeRect).fill()
+
+        // Tiny sparkle/highlight dot
+        let sparkleRadius: CGFloat = 0.5
+        let sparkleRect = NSRect(
+            x: centerX + eyeOffsetX + lookDirection * 0.5 - sparkleRadius,
+            y: faceY + 0.3 - sparkleRadius,
+            width: sparkleRadius * 2,
+            height: sparkleRadius * 2
+        )
+        NSColor.black.setFill()
+        NSBezierPath(ovalIn: sparkleRect).fill()
+    }
+
+    /// Draw small rounded legs.
+    private static func drawLeg(
+        fromX: CGFloat,
+        fromY: CGFloat,
+        toX: CGFloat,
+        toY: CGFloat,
+        thickness: CGFloat = 2.0
+    ) {
+        let path = NSBezierPath()
+        path.lineWidth = thickness
+        path.lineCapStyle = .round
+        path.move(to: NSPoint(x: fromX, y: fromY))
+        path.line(to: NSPoint(x: toX, y: toY))
+        NSColor.black.setStroke()
+        path.stroke()
+    }
+
+    // MARK: - Run Cycle
+
     private static func drawRunFrame(phase: Double) -> NSImage {
         let size = frameSize
         let image = NSImage(size: size, flipped: false) { rect in
-            let scale: CGFloat = 1.0
-
-            // Body proportions (in points, from bottom)
-            let groundY: CGFloat = 2
-            let bodyHeight: CGFloat = 6
-            let headRadius: CGFloat = 3.0
             let centerX: CGFloat = size.width / 2
+            let bodyWidth: CGFloat = 10.0
+            let bodyHeight: CGFloat = 9.0
+            let legLength: CGFloat = 3.5
 
-            // Bounce: body moves up/down slightly with run cycle
-            let bounce = CGFloat(sin(phase * .pi * 2)) * 1.0
-            let hipY = groundY + 4 + bounce
-            let shoulderY = hipY + bodyHeight
-            let headY = shoulderY + headRadius + 0.5
+            // Run bounce: sinusoidal vertical motion
+            let bounce = CGFloat(sin(phase * .pi * 2)) * 1.2
+            let squash: CGFloat = 1.0 - abs(CGFloat(sin(phase * .pi * 2))) * 0.08
 
-            let color = NSColor.black
+            // Forward lean during run
+            let tilt = CGFloat(sin(phase * .pi * 2)) * 0.8
 
-            // --- Head (circle) ---
-            let headRect = NSRect(
-                x: centerX - headRadius,
-                y: headY - headRadius,
-                width: headRadius * 2,
-                height: headRadius * 2
+            let groundY: CGFloat = 1.5
+            let bodyBottom = groundY + legLength + bounce
+
+            // --- Legs (two legs, 180° out of phase) ---
+            let legPhase1 = phase
+            let legPhase2 = phase + 0.5
+
+            // Leg 1: swing forward/back
+            let leg1SwingX = CGFloat(sin(legPhase1 * .pi * 2)) * 3.5
+            let leg1LiftY = max(0, CGFloat(sin(legPhase1 * .pi * 2))) * 1.5
+
+            drawLeg(
+                fromX: centerX - 1.5,
+                fromY: bodyBottom + 1.0,
+                toX: centerX - 1.5 + leg1SwingX,
+                toY: groundY + leg1LiftY,
+                thickness: 2.2
             )
-            let headPath = NSBezierPath(ovalIn: headRect)
-            color.setFill()
-            headPath.fill()
 
-            // --- Body (line from shoulder to hip) ---
-            let bodyPath = NSBezierPath()
-            bodyPath.lineWidth = 1.5 * scale
-            bodyPath.move(to: NSPoint(x: centerX, y: shoulderY))
-            bodyPath.line(to: NSPoint(x: centerX, y: hipY))
-            color.setStroke()
-            bodyPath.stroke()
+            // Leg 2: opposite phase
+            let leg2SwingX = CGFloat(sin(legPhase2 * .pi * 2)) * 3.5
+            let leg2LiftY = max(0, CGFloat(sin(legPhase2 * .pi * 2))) * 1.5
 
-            // --- Legs ---
-            // Two legs, 180 degrees out of phase
-            let legLength: CGFloat = 4.5
-            let legSwing = CGFloat(sin(phase * .pi * 2)) * 3.0
+            drawLeg(
+                fromX: centerX + 1.5,
+                fromY: bodyBottom + 1.0,
+                toX: centerX + 1.5 + leg2SwingX,
+                toY: groundY + leg2LiftY,
+                thickness: 2.2
+            )
 
-            let leg1Path = NSBezierPath()
-            leg1Path.lineWidth = 1.5 * scale
-            leg1Path.move(to: NSPoint(x: centerX, y: hipY))
-            leg1Path.line(to: NSPoint(x: centerX + legSwing, y: hipY - legLength))
-            color.setStroke()
-            leg1Path.stroke()
+            // --- Body ---
+            drawBody(
+                in: rect,
+                centerX: centerX + tilt * 0.3,
+                bodyBottom: bodyBottom,
+                bodyHeight: bodyHeight,
+                bodyWidth: bodyWidth,
+                tilt: tilt,
+                squash: squash
+            )
 
-            let leg2Path = NSBezierPath()
-            leg2Path.lineWidth = 1.5 * scale
-            leg2Path.move(to: NSPoint(x: centerX, y: hipY))
-            leg2Path.line(to: NSPoint(x: centerX - legSwing, y: hipY - legLength))
-            leg2Path.stroke()
-
-            // --- Arms ---
-            let armLength: CGFloat = 3.5
-            let armSwing = CGFloat(sin(phase * .pi * 2)) * 2.5
-
-            let arm1Path = NSBezierPath()
-            arm1Path.lineWidth = 1.2 * scale
-            arm1Path.move(to: NSPoint(x: centerX, y: shoulderY - 1))
-            arm1Path.line(to: NSPoint(x: centerX - armSwing, y: shoulderY - 1 - armLength))
-            arm1Path.stroke()
-
-            let arm2Path = NSBezierPath()
-            arm2Path.lineWidth = 1.2 * scale
-            arm2Path.move(to: NSPoint(x: centerX, y: shoulderY - 1))
-            arm2Path.line(to: NSPoint(x: centerX + armSwing, y: shoulderY - 1 - armLength))
-            arm2Path.stroke()
+            // --- Face ---
+            let faceY = bodyBottom + bodyHeight * squash * 0.6
+            drawFace(
+                centerX: centerX + tilt * 0.3,
+                faceY: faceY,
+                bodyWidth: bodyWidth,
+                lookDirection: 1.0  // always facing right while running
+            )
 
             return true
         }
@@ -115,74 +185,76 @@ struct SpriteGenerator {
         return image
     }
 
-    // MARK: - Idle Drawing
+    // MARK: - Idle Animation
 
-    /// Draw a single frame of the idle animation.
-    /// A standing figure with a gentle "breathing" sway.
     private static func drawIdleFrame(phase: Double) -> NSImage {
         let size = frameSize
         let image = NSImage(size: size, flipped: false) { rect in
             let centerX: CGFloat = size.width / 2
-            let groundY: CGFloat = 2
-            let bodyHeight: CGFloat = 6
-            let headRadius: CGFloat = 3.0
+            let bodyWidth: CGFloat = 10.0
+            let bodyHeight: CGFloat = 9.0
+            let legLength: CGFloat = 3.5
 
-            // Gentle breathing motion
-            let breathe = CGFloat(sin(phase * .pi * 2)) * 0.5
+            // Gentle breathing: slow vertical bob
+            let breathe = CGFloat(sin(phase * .pi * 2)) * 0.6
+            // Subtle squash/stretch with breathing
+            let squash: CGFloat = 1.0 + CGFloat(sin(phase * .pi * 2)) * 0.03
 
-            let hipY = groundY + 4
-            let shoulderY = hipY + bodyHeight + breathe
-            let headY = shoulderY + headRadius + 0.5
+            let groundY: CGFloat = 1.5
+            let bodyBottom = groundY + legLength + breathe
 
-            let color = NSColor.black
-
-            // Head
-            let headRect = NSRect(
-                x: centerX - headRadius,
-                y: headY - headRadius,
-                width: headRadius * 2,
-                height: headRadius * 2
+            // --- Legs (standing, slightly apart) ---
+            drawLeg(
+                fromX: centerX - 2.0,
+                fromY: bodyBottom + 1.0,
+                toX: centerX - 2.5,
+                toY: groundY,
+                thickness: 2.2
             )
-            NSBezierPath(ovalIn: headRect).fill()
 
-            // Body
-            let bodyPath = NSBezierPath()
-            bodyPath.lineWidth = 1.5
-            bodyPath.move(to: NSPoint(x: centerX, y: shoulderY))
-            bodyPath.line(to: NSPoint(x: centerX, y: hipY))
-            color.setStroke()
-            bodyPath.stroke()
+            drawLeg(
+                fromX: centerX + 2.0,
+                fromY: bodyBottom + 1.0,
+                toX: centerX + 2.5,
+                toY: groundY,
+                thickness: 2.2
+            )
 
-            // Legs (standing straight, slightly apart)
-            let legLength: CGFloat = 4.5
+            // --- Body ---
+            drawBody(
+                in: rect,
+                centerX: centerX,
+                bodyBottom: bodyBottom,
+                bodyHeight: bodyHeight,
+                bodyWidth: bodyWidth,
+                squash: squash
+            )
 
-            let leg1 = NSBezierPath()
-            leg1.lineWidth = 1.5
-            leg1.move(to: NSPoint(x: centerX, y: hipY))
-            leg1.line(to: NSPoint(x: centerX - 1.5, y: hipY - legLength))
-            leg1.stroke()
+            // --- Face ---
+            let faceY = bodyBottom + bodyHeight * squash * 0.6
 
-            let leg2 = NSBezierPath()
-            leg2.lineWidth = 1.5
-            leg2.move(to: NSPoint(x: centerX, y: hipY))
-            leg2.line(to: NSPoint(x: centerX + 1.5, y: hipY - legLength))
-            leg2.stroke()
+            // Blink: close eye briefly at phase ~0.75
+            let blinkWindow = abs(phase - 0.75)
+            let isBlinking = blinkWindow < 0.06
 
-            // Arms (relaxed at sides)
-            let armLength: CGFloat = 3.5
-            let armSway = CGFloat(sin(phase * .pi * 2)) * 0.3
-
-            let arm1 = NSBezierPath()
-            arm1.lineWidth = 1.2
-            arm1.move(to: NSPoint(x: centerX, y: shoulderY - 1))
-            arm1.line(to: NSPoint(x: centerX - 2.5 - armSway, y: shoulderY - 1 - armLength))
-            arm1.stroke()
-
-            let arm2 = NSBezierPath()
-            arm2.lineWidth = 1.2
-            arm2.move(to: NSPoint(x: centerX, y: shoulderY - 1))
-            arm2.line(to: NSPoint(x: centerX + 2.5 + armSway, y: shoulderY - 1 - armLength))
-            arm2.stroke()
+            if isBlinking {
+                // Closed eye: horizontal line
+                let eyeX = centerX
+                let path = NSBezierPath()
+                path.lineWidth = 1.0
+                path.lineCapStyle = .round
+                path.move(to: NSPoint(x: eyeX - 1.5, y: faceY))
+                path.line(to: NSPoint(x: eyeX + 1.5, y: faceY))
+                NSColor.white.setStroke()
+                path.stroke()
+            } else {
+                drawFace(
+                    centerX: centerX,
+                    faceY: faceY,
+                    bodyWidth: bodyWidth,
+                    lookDirection: 0.0  // looking straight ahead
+                )
+            }
 
             return true
         }

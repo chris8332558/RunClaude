@@ -33,7 +33,12 @@ final class SpriteAnimator {
     private var timer: Timer?
 
     /// Smoothing factor for interval transitions (0-1, lower = smoother).
-    private let smoothing: Double = 0.15
+    /// 0.12 gives a ~0.5s ramp time which feels natural without lag.
+    private let smoothing: Double = 0.12
+
+    /// Minimum change in interval before we bother updating the timer,
+    /// to avoid unnecessary timer rescheduling on tiny fluctuations.
+    private let deadband: Double = 0.005
 
     // MARK: - Init
 
@@ -75,8 +80,13 @@ final class SpriteAnimator {
     private func scheduleNextFrame() {
         timer?.invalidate()
 
-        // Smoothly interpolate toward target interval
-        currentInterval += (targetInterval - currentInterval) * smoothing
+        // Smoothly interpolate toward target interval (exponential easing)
+        let delta = (targetInterval - currentInterval) * smoothing
+        if abs(delta) > deadband {
+            currentInterval += delta
+        } else {
+            currentInterval = targetInterval
+        }
 
         timer = Timer.scheduledTimer(withTimeInterval: currentInterval, repeats: false) { [weak self] _ in
             self?.advanceFrame()

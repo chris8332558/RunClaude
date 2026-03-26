@@ -1,5 +1,19 @@
 # RunClaude Changelog
 
+## [2026-03-26] — Phase 3: Polish, sprites, and launch-at-login
+
+### Changed
+- **SpriteGenerator.swift** — Replaced stick-figure sprites with a rounded Claude-inspired bean/capsule character. Body uses `NSBezierPath(roundedRect:)` with squash-and-stretch during run cycle. Face has a cutout eye with sparkle highlight. Idle animation includes a blink at phase ~0.75. Frame count increased (10 run, 6 idle) for smoother motion. Frame width widened from 18pt to 20pt to accommodate the new body shape.
+- **SpriteAnimator.swift** — Added deadband threshold (0.005s) to skip timer rescheduling on tiny interval fluctuations; reduced smoothing factor from 0.15 to 0.12 for a more natural ~0.5s ramp time between speed changes.
+- **MenuBarController.swift** — Polished context menu: shows capitalized speed tier, token count alongside cost, added "Settings..." menu item (Cmd+,). Settings opens a standalone `NSWindow` hosting `SettingsView`. Tooltip now respects the "showCostInTooltip" user preference.
+- **SettingsView.swift** — Wired launch-at-login to `SMAppService.mainApp.register()/unregister()` (macOS 13+) with error handling and toggle revert on failure. Removed placeholder GitHub link, added descriptive subtitle.
+
+### Decisions
+- **Bean/capsule character over stick figure** — The rounded shape reads better at 18pt menu bar size and evokes the friendly Claude aesthetic. Template-image rendering preserved so macOS still handles light/dark adaptation automatically.
+- **Squash-and-stretch on run cycle** — The body compresses 8% at peak leg extension and widens 2.4% to compensate, following the classic animation principle. This makes the run feel bouncy and alive even at tiny pixel sizes.
+- **Deadband on animation timer** — Without this, tiny floating-point drifts in the smoothing calculation caused the timer to be invalidated and rescheduled every frame even at steady state, wasting CPU. The 5ms deadband eliminates this.
+- **SMAppService for launch-at-login** — Preferred over the deprecated `LSSharedFileListInsertItemURL` and `SMLoginItemSetEnabled` APIs. Requires the app to be distributed as a proper .app bundle (which `make-app.sh` already produces).
+
 ## [2026-03-26] — Initial project scaffold and Phase 1+2 implementation
 
 ### Added

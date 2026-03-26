@@ -1,13 +1,14 @@
 import SwiftUI
+import ServiceManagement
 
 // MARK: - Settings View
 
 /// Preferences window for RunClaude.
-/// Will be expanded in Phase 3. Provides basic configuration for now.
 struct SettingsView: View {
     @AppStorage("customDataPath") private var customDataPath: String = ""
     @AppStorage("showCostInTooltip") private var showCostInTooltip: Bool = true
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
+    @State private var loginItemError: String?
 
     var body: some View {
         Form {
@@ -42,21 +43,46 @@ struct SettingsView: View {
             Section("General") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { newValue in
-                        // TODO: Phase 3 — use SMAppService to register/unregister
-                        print("[RunClaude] Launch at login: \(newValue) (not yet implemented)")
+                        setLaunchAtLogin(enabled: newValue)
                     }
+
+                if let error = loginItemError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
             }
 
             Section("About") {
                 HStack {
                     Text("RunClaude v0.1.0")
                     Spacer()
-                    Link("GitHub", destination: URL(string: "https://github.com/your-username/RunClaude")!)
+                    Text("macOS menu bar token monitor")
                         .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 320)
+        .frame(width: 400, height: 340)
+    }
+
+    // MARK: - Launch at Login
+
+    private func setLaunchAtLogin(enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+                loginItemError = nil
+            } catch {
+                loginItemError = "Failed to \(enabled ? "enable" : "disable") launch at login: \(error.localizedDescription)"
+                // Revert the toggle
+                launchAtLogin = !enabled
+            }
+        }
     }
 }
