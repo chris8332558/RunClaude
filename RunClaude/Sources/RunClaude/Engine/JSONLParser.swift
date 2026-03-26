@@ -86,9 +86,13 @@ struct JSONLParser {
     // MARK: - Private
 
     private static func extractTokenRecord(from json: [String: Any], rawLine: String) -> TokenRecord? {
-        // Try multiple known formats for where usage data lives
+        // Only process "assistant" type lines — these are the ones with token usage.
+        // Skip "user", "system", "progress", "file-history-snapshot", "last-prompt" etc.
+        if let type = json["type"] as? String, type != "assistant" {
+            return nil
+        }
 
-        // Format 1: message.usage (most common for assistant messages)
+        // Format 1: message.usage (standard Claude Code format)
         if let message = json["message"] as? [String: Any],
            let usage = message["usage"] as? [String: Any] {
             return buildRecord(
