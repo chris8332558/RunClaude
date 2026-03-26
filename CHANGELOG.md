@@ -1,5 +1,31 @@
 # RunClaude Changelog
 
+## [2026-03-26] — Phase 4: Sprite packs, cost alerts, trends, Homebrew
+
+### Added
+- **SpriteGenerator.swift** — Refactored into a `SpritePack` protocol with `SpritePackRegistry`. Four built-in packs: Claude Bean (default, the rounded capsule character), Running Cat (silhouette with wavy tail), Pixel Robot (blocky 8-bit with antenna), and Sound Wave (audio visualizer bars). All packs produce template images for automatic light/dark mode. Shared drawing utilities extracted into `SpriteDrawing` enum.
+- **CostAlertManager.swift** — New file. Monitors daily cost against a user-defined threshold and delivers a macOS notification via `UNUserNotificationCenter` when exceeded. Fires at most once per day per threshold crossing; resets at midnight.
+- **HistoryDataPoint** in Models.swift — New `Identifiable` struct for charting historical daily usage (tokens + cost + label).
+- **UsagePopoverView.swift** — Added segmented tab bar (Today / 7 Days / 30 Days). History tabs show summary stats (total tokens, cost, avg/day), token bar chart, cost bar chart, and peak day label. Built with Swift Charts `BarMark` + `AxisMarks`.
+- **SettingsView.swift** — Added "Character" section with sprite pack picker dropdown; "Cost Alerts" section with enable toggle and USD threshold input field.
+- **Scripts/create-release.sh** — Release builder: compiles release binary, assembles .app bundle, zips it, and outputs SHA256 for Homebrew cask.
+- **Cask/runclaude.rb** — Homebrew cask formula template. Users can install via `brew install --cask runclaude` once a GitHub release is published.
+
+### Changed
+- **SpriteAnimator.swift** — Added `switchPack(_:)` method for hot-swapping sprite packs at runtime; made `runFrames`/`idleFrames` mutable (`var`); added `frameSize` computed property that delegates to the current pack.
+- **TokenAggregator.swift** — Added `historicalDays` dictionary tracking per-day usage from all ingested records (not just today). New `weeklyHistory` and `monthlyHistory` computed properties return `[HistoryDataPoint]` arrays for the last 7 and 30 days respectively.
+- **TokenUsageEngine.swift** — Integrated `CostAlertManager`; calls `checkCost()` on every state update.
+- **Models.swift** — Added `weeklyHistory` and `monthlyHistory` arrays to `UsageState`.
+- **MenuBarController.swift** — Animator now initializes from `SpritePackRegistry.currentPack()`; Settings window wired to call `animator.switchPack()` on selection change; frame size is now dynamic per pack.
+- **UsagePopoverView.swift** — Version bumped to v0.2.0.
+
+### Decisions
+- **Protocol-based sprite packs** — Used a `SpritePack` protocol instead of an enum or subclass hierarchy so that future packs (including user-contributed ones) can be added without modifying existing code. The registry pattern keeps discovery centralized.
+- **Four diverse pack styles** — Chose distinctly different visual styles (organic bean, animal, pixel art, abstract visualizer) to demonstrate the range of the system and appeal to different tastes. All are procedurally generated — no external image assets required.
+- **UNUserNotificationCenter over NSUserNotification** — The older `NSUserNotification` API is deprecated since macOS 11. `UNUserNotificationCenter` is the modern replacement and integrates with Focus/Do Not Disturb.
+- **Historical data in-memory only** — Daily history is rebuilt from JSONL logs on each launch rather than persisted to a database. This keeps the architecture simple and the log files remain the single source of truth. The trade-off is a brief initial scan on startup.
+- **Homebrew cask over tap formula** — A cask is the standard Homebrew distribution method for macOS GUI apps. The formula template includes `zap` stanzas for clean uninstallation.
+
 ## [2026-03-26] — Phase 3: Polish, sprites, and launch-at-login
 
 ### Changed

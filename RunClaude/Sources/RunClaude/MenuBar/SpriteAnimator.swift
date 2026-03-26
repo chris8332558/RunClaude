@@ -6,16 +6,17 @@ import AppKit
 ///
 /// Manages two animation sets (running + idle) and smoothly transitions
 /// between them based on the current token velocity.
+/// Supports hot-swapping sprite packs at runtime.
 final class SpriteAnimator {
 
     /// Callback with the current frame image to display.
     var onFrame: ((NSImage) -> Void)?
 
     /// Running animation frames.
-    private let runFrames: [NSImage]
+    private var runFrames: [NSImage]
 
     /// Idle animation frames.
-    private let idleFrames: [NSImage]
+    private var idleFrames: [NSImage]
 
     /// Current frame index within the active animation set.
     private var currentFrameIndex: Int = 0
@@ -40,14 +41,16 @@ final class SpriteAnimator {
     /// to avoid unnecessary timer rescheduling on tiny fluctuations.
     private let deadband: Double = 0.005
 
+    /// The current sprite pack ID for change detection.
+    private var currentPackId: String
+
     // MARK: - Init
 
-    init(
-        runFrames: [NSImage]? = nil,
-        idleFrames: [NSImage]? = nil
-    ) {
-        self.runFrames = runFrames ?? SpriteGenerator.generateRunFrames()
-        self.idleFrames = idleFrames ?? SpriteGenerator.generateIdleFrames()
+    init(pack: SpritePack? = nil) {
+        let p = pack ?? SpritePackRegistry.currentPack()
+        self.runFrames = p.generateRunFrames()
+        self.idleFrames = p.generateIdleFrames()
+        self.currentPackId = p.id
     }
 
     // MARK: - Control
@@ -73,6 +76,20 @@ final class SpriteAnimator {
             isIdle = idle
             currentFrameIndex = 0
         }
+    }
+
+    /// Switch to a different sprite pack at runtime.
+    func switchPack(_ pack: SpritePack) {
+        guard pack.id != currentPackId else { return }
+        currentPackId = pack.id
+        runFrames = pack.generateRunFrames()
+        idleFrames = pack.generateIdleFrames()
+        currentFrameIndex = 0
+    }
+
+    /// The frame size of the current pack (for NSStatusItem sizing).
+    var frameSize: NSSize {
+        SpritePackRegistry.pack(for: currentPackId).frameSize
     }
 
     // MARK: - Animation Loop
@@ -101,8 +118,6 @@ final class SpriteAnimator {
         let frame = frames[currentFrameIndex]
 
         onFrame?(frame)
-
-        // Schedule the next frame
         scheduleNextFrame()
     }
 }

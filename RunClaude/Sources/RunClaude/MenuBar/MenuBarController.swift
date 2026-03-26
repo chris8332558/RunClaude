@@ -24,7 +24,7 @@ final class MenuBarController {
     init(engine: TokenUsageEngine) {
         self.engine = engine
         self.speedMapper = SpeedMapper()
-        self.animator = SpriteAnimator()
+        self.animator = SpriteAnimator(pack: SpritePackRegistry.currentPack())
     }
 
     // MARK: - Setup
@@ -34,11 +34,12 @@ final class MenuBarController {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = item.button {
-            // Set initial frame
-            let idleFrames = SpriteGenerator.generateIdleFrames()
+            // Set initial frame from the current sprite pack
+            let currentPack = SpritePackRegistry.currentPack()
+            let idleFrames = currentPack.generateIdleFrames()
             if let firstFrame = idleFrames.first {
                 button.image = firstFrame
-                button.image?.size = SpriteGenerator.frameSize
+                button.image?.size = currentPack.frameSize
             }
             button.imagePosition = .imageLeft
 
@@ -53,8 +54,9 @@ final class MenuBarController {
         // Wire up the animator to update the status item image
         animator.onFrame = { [weak self] image in
             DispatchQueue.main.async {
-                self?.statusItem?.button?.image = image
-                self?.statusItem?.button?.image?.size = SpriteGenerator.frameSize
+                guard let self = self else { return }
+                self.statusItem?.button?.image = image
+                self.statusItem?.button?.image?.size = self.animator.frameSize
             }
         }
 
@@ -202,7 +204,11 @@ final class MenuBarController {
             return
         }
 
-        let settingsView = SettingsView()
+        var settingsView = SettingsView()
+        settingsView.onSpritePackChanged = { [weak self] packId in
+            let pack = SpritePackRegistry.pack(for: packId)
+            self?.animator.switchPack(pack)
+        }
         let hostingController = NSHostingController(rootView: settingsView)
 
         let window = NSWindow(contentViewController: hostingController)

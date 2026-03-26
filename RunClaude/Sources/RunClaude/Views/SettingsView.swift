@@ -8,10 +8,27 @@ struct SettingsView: View {
     @AppStorage("customDataPath") private var customDataPath: String = ""
     @AppStorage("showCostInTooltip") private var showCostInTooltip: Bool = true
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
+    @AppStorage("selectedSpritePack") private var selectedPackId: String = SpritePackRegistry.defaultPackId
+    @AppStorage(CostAlertManager.enabledKey) private var costAlertEnabled: Bool = false
+    @AppStorage(CostAlertManager.thresholdKey) private var costAlertThreshold: Double = 5.0
     @State private var loginItemError: String?
+
+    /// Callback when sprite pack changes (set by MenuBarController).
+    var onSpritePackChanged: ((String) -> Void)?
 
     var body: some View {
         Form {
+            Section("Character") {
+                Picker("Sprite Pack", selection: $selectedPackId) {
+                    ForEach(SpritePackRegistry.allPacks, id: \.id) { pack in
+                        Text(pack.displayName).tag(pack.id)
+                    }
+                }
+                .onChange(of: selectedPackId) { newValue in
+                    onSpritePackChanged?(newValue)
+                }
+            }
+
             Section("Data Source") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Claude Code data directory")
@@ -36,6 +53,22 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Cost Alerts") {
+                Toggle("Enable cost alert", isOn: $costAlertEnabled)
+
+                if costAlertEnabled {
+                    HStack {
+                        Text("Alert when daily cost exceeds")
+                            .font(.subheadline)
+                        Spacer()
+                        TextField("$", value: $costAlertThreshold, format: .currency(code: "USD"))
+                            .frame(width: 80)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.subheadline, design: .monospaced))
+                    }
+                }
+            }
+
             Section("Display") {
                 Toggle("Show cost in tooltip", isOn: $showCostInTooltip)
             }
@@ -55,7 +88,7 @@ struct SettingsView: View {
 
             Section("About") {
                 HStack {
-                    Text("RunClaude v0.1.0")
+                    Text("RunClaude v0.2.0")
                     Spacer()
                     Text("macOS menu bar token monitor")
                         .font(.caption)
@@ -64,7 +97,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 340)
+        .frame(width: 420, height: 480)
     }
 
     // MARK: - Launch at Login
@@ -80,7 +113,6 @@ struct SettingsView: View {
                 loginItemError = nil
             } catch {
                 loginItemError = "Failed to \(enabled ? "enable" : "disable") launch at login: \(error.localizedDescription)"
-                // Revert the toggle
                 launchAtLogin = !enabled
             }
         }

@@ -3,7 +3,8 @@ import Combine
 
 // MARK: - Token Usage Engine
 
-/// The central engine that ties together file watching, parsing, and aggregation.
+/// The central engine that ties together file watching, parsing, aggregation,
+/// and cost alerting.
 ///
 /// Publishes a `UsageState` that the UI layer observes to drive animation and stats.
 final class TokenUsageEngine: ObservableObject {
@@ -13,6 +14,7 @@ final class TokenUsageEngine: ObservableObject {
 
     private let watcher: LogFileWatcher
     private let aggregator: TokenAggregator
+    private let costAlertManager = CostAlertManager()
 
     /// Timer to periodically recalculate velocity (even when no new data arrives,
     /// the sliding window needs to decay old samples).
@@ -61,20 +63,12 @@ final class TokenUsageEngine: ObservableObject {
 
     private func handleNewRecords(_ records: [TokenRecord]) {
         aggregator.ingest(records)
-
-        // Update cost estimates
-        var usage = aggregator.today
-        for (model, var modelUsage) in usage.modelBreakdown {
-            modelUsage.estimatedCost = CostCalculator.cost(for: modelUsage)
-            usage.modelBreakdown[model] = modelUsage
-        }
-        usage.estimatedCost = usage.modelBreakdown.values.reduce(0) { $0 + $1.estimatedCost }
-
         updateState()
     }
 
     private func updateState() {
         state = aggregator.buildState()
+
         // Recalculate today's cost
         var today = aggregator.today
         var totalCost = 0.0
@@ -85,5 +79,8 @@ final class TokenUsageEngine: ObservableObject {
         }
         today.estimatedCost = totalCost
         state.todayUsage = today
+
+        // Check cost alert threshold
+        costAlertManager.checkCost(totalCost)
     }
 }

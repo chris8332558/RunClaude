@@ -52,6 +52,17 @@ struct TokenSample: Sendable {
     let tokens: Int
 }
 
+// MARK: - Historical Data Point
+
+/// A single data point in a historical usage chart.
+struct HistoryDataPoint: Identifiable, Sendable {
+    var id: Date { date }
+    let date: Date
+    let totalTokens: Int
+    let estimatedCost: Double
+    let label: String  // e.g. "Mon", "Mar 15", "Week 12"
+}
+
 // MARK: - Engine State
 
 /// Published state from the token usage engine, consumed by the UI layer.
@@ -60,4 +71,6 @@ struct UsageState: Sendable {
     var todayUsage: DailyUsage = DailyUsage(date: Date())
     var recentSamples: [TokenSample] = []
     var isActive: Bool = false
+    var weeklyHistory: [HistoryDataPoint] = []   // last 7 days
+    var monthlyHistory: [HistoryDataPoint] = []  // last 30 days
 }

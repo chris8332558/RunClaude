@@ -5,6 +5,7 @@ import Foundation
 /// Maintains a sliding window of recent token activity and computes:
 /// - tokens/second (drives animation speed)
 /// - daily aggregated usage (drives popover stats)
+/// - historical daily totals (drives weekly/monthly trend charts)
 final class TokenAggregator {
 
     /// Sliding window duration for velocity calculation.
@@ -20,6 +21,10 @@ final class TokenAggregator {
     private var minuteBuckets: [Date: Int] = [:]
     private let bucketInterval: TimeInterval = 300 // 5 minutes
 
+    /// Historical daily usage keyed by day start date.
+    /// Populated from all ingested records, used for weekly/monthly charts.
+    private var historicalDays: [Date: DailyUsage] = [:]
+
     // MARK: - Init
 
     init(windowDuration: TimeInterval = 10.0) {
@@ -32,7 +37,8 @@ final class TokenAggregator {
     /// Add new token records to the aggregator.
     func ingest(_ records: [TokenRecord]) {
         let now = Date()
-        let todayStart = Calendar.current.startOfDay(for: now)
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: now)
 
         // Reset daily usage if we've crossed midnight
         if dailyUsage.date != todayStart {
@@ -41,12 +47,13 @@ final class TokenAggregator {
 
         for record in records {
             let tokens = record.totalTokens
+            let recordDayStart = calendar.startOfDay(for: record.timestamp)
 
             // Add to sliding window
             recentSamples.append(TokenSample(timestamp: record.timestamp, tokens: tokens))
 
             // Add to daily aggregation (only count today's records)
-            if Calendar.current.isDateInToday(record.timestamp) {
+            if recordDayStart == todayStart {
                 dailyUsage.inputTokens += record.inputTokens
                 dailyUsage.outputTokens += record.outputTokens
                 dailyUsage.cacheCreationTokens += record.cacheCreationTokens
@@ -62,6 +69,24 @@ final class TokenAggregator {
                 modelUsage.totalTokens += tokens
                 dailyUsage.modelBreakdown[record.model] = modelUsage
             }
+
+            // Add to historical daily totals (all days, not just today)
+            var dayUsage = historicalDays[recordDayStart] ?? DailyUsage(date: recordDayStart)
+            dayUsage.inputTokens += record.inputTokens
+            dayUsage.outputTokens += record.outputTokens
+            dayUsage.cacheCreationTokens += record.cacheCreationTokens
+            dayUsage.cacheReadTokens += record.cacheReadTokens
+            dayUsage.totalTokens += tokens
+
+            var modelUsage = dayUsage.modelBreakdown[record.model] ?? ModelUsage(model: record.model)
+            modelUsage.inputTokens += record.inputTokens
+            modelUsage.outputTokens += record.outputTokens
+            modelUsage.cacheCreationTokens += record.cacheCreationTokens
+            modelUsage.cacheReadTokens += record.cacheReadTokens
+            modelUsage.totalTokens += tokens
+            dayUsage.modelBreakdown[record.model] = modelUsage
+
+            historicalDays[recordDayStart] = dayUsage
 
             // Add to 5-minute buckets
             let bucketDate = record.timestamp.rounded(to: bucketInterval)
@@ -118,13 +143,25 @@ final class TokenAggregator {
             .map { (date: $0.key, tokens: $0.value) }
     }
 
+    /// Last 7 days of usage as chart data points.
+    var weeklyHistory: [HistoryDataPoint] {
+        buildHistory(days: 7)
+    }
+
+    /// Last 30 days of usage as chart data points.
+    var monthlyHistory: [HistoryDataPoint] {
+        buildHistory(days: 30)
+    }
+
     /// Build the full usage state snapshot for the UI.
     func buildState() -> UsageState {
         UsageState(
             tokensPerSecond: tokensPerSecond,
             todayUsage: today,
             recentSamples: Array(recentSamples.suffix(100)),
-            isActive: isActive
+            isActive: isActive,
+            weeklyHistory: weeklyHistory,
+            monthlyHistory: monthlyHistory
         )
     }
 
@@ -133,6 +170,32 @@ final class TokenAggregator {
     private func pruneWindow(now: Date) {
         let cutoff = now.addingTimeInterval(-windowDuration)
         recentSamples.removeAll { $0.timestamp < cutoff }
+    }
+
+    private func buildHistory(days: Int) -> [HistoryDataPoint] {
+        let calendar = Calendar.current
+        let now = Date()
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = days <= 7 ? "EEE" : "M/d"
+
+        return (0..<days).reversed().map { daysAgo in
+            let date = calendar.date(byAdding: .day, value: -daysAgo, to: now)!
+            let dayStart = calendar.startOfDay(for: date)
+            let usage = historicalDays[dayStart]
+            let cost = computeDayCost(usage)
+
+            return HistoryDataPoint(
+                date: dayStart,
+                totalTokens: usage?.totalTokens ?? 0,
+                estimatedCost: cost,
+                label: dayFormatter.string(from: dayStart)
+            )
+        }
+    }
+
+    private func computeDayCost(_ usage: DailyUsage?) -> Double {
+        guard let usage = usage else { return 0.0 }
+        return usage.modelBreakdown.values.reduce(0.0) { $0 + CostCalculator.cost(for: $1) }
     }
 }
 
