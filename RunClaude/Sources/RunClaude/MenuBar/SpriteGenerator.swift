@@ -279,46 +279,50 @@ struct PixelRobotPack: SpritePack {
     }
 
     private func drawRunFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
-            let px: CGFloat = 2.0 // pixel size
-            let centerX: CGFloat = size.width / 2
-            let bounce = CGFloat(sin(phase * .pi * 2)) * 1.0
-            let groundY: CGFloat = 1.0
+        let size = frameSize  // 18×18
+        let image = NSImage(size: size, flipped: false) { _ in
+            let px: CGFloat = 2.0
+            let cx: CGFloat = size.width / 2
+            let groundY: CGFloat = 1.5
+
+            // Body sways left/right; slight vertical bounce on each step
+            let sway   = CGFloat(sin(phase * .pi * 2)) * 0.5
+            let bounce = abs(CGFloat(sin(phase * .pi * 2))) * 1.0
 
             NSColor.black.setFill()
 
-            // Legs (alternating)
-            let legSwing = CGFloat(sin(phase * .pi * 2)) * 2.0
-            // Left leg
-            NSBezierPath(rect: NSRect(x: centerX - 3 * px + legSwing, y: groundY, width: px, height: 3 * px)).fill()
-            // Right leg
-            NSBezierPath(rect: NSRect(x: centerX + 1 * px - legSwing, y: groundY, width: px, height: 3 * px)).fill()
+            // Body — same 6×5 px proportions as idle, shifted by sway + bounce
+            let bodyW = 6 * px
+            let bodyH = 5 * px
+            let bodyBottom = groundY + 1.5 * px + bounce
+            let bodyRect = NSRect(x: cx - bodyW / 2 + sway, y: bodyBottom, width: bodyW, height: bodyH)
+            NSBezierPath(rect: bodyRect).fill()
 
-            let bodyBottom = groundY + 3 * px + bounce
+            // Arms — pump up and down in opposite phases
+            let armW = 2 * px
+            let armH = 2 * px
+            let armMidY = bodyRect.minY + (bodyH - armH) / 2
+            let armSwing = CGFloat(sin(phase * .pi * 2)) * 1.2 
+            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armMidY + armSwing,  width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armMidY + armSwing,  width: armW, height: armH)).fill()
 
-            // Body (rectangle)
-            NSBezierPath(rect: NSRect(x: centerX - 3 * px, y: bodyBottom, width: 6 * px, height: 4 * px)).fill()
+            // Legs — 4 legs, alternating pairs lift off the ground
+            let legW = px
+            let gap  = (bodyW - legW) / 3
+            for i in 0...3 {
+                let xPos     = bodyRect.minX + CGFloat(i) * gap
+                let legPhase = (i % 2 == 0) ? phase : phase + 0.5
+                let lift     = max(0, CGFloat(sin(legPhase * .pi * 2))) * 1.0 
+                NSBezierPath(rect: NSRect(x: xPos, y: groundY + lift, width: legW, height: bodyBottom - groundY - lift)).fill()
+            }
 
-            // Arms
-            let armSwing = CGFloat(sin(phase * .pi * 2)) * 1.5
-            NSBezierPath(rect: NSRect(x: centerX - 4 * px, y: bodyBottom + px - armSwing, width: px, height: 2 * px)).fill()
-            NSBezierPath(rect: NSRect(x: centerX + 3 * px, y: bodyBottom + px + armSwing, width: px, height: 2 * px)).fill()
-
-            // Head
-            let headBottom = bodyBottom + 4 * px
-            NSBezierPath(rect: NSRect(x: centerX - 2.5 * px, y: headBottom, width: 5 * px, height: 3 * px)).fill()
-
-            // Eyes (cutout)
-            NSColor.white.setFill()
-            NSBezierPath(rect: NSRect(x: centerX - 1.5 * px, y: headBottom + px, width: px, height: px)).fill()
-            NSBezierPath(rect: NSRect(x: centerX + 0.5 * px, y: headBottom + px, width: px, height: px)).fill()
-
-            // Antenna
-            NSColor.black.setFill()
-            let antennaWave = CGFloat(sin(phase * .pi * 4)) * 0.5
-            NSBezierPath(rect: NSRect(x: centerX - 0.25 * px, y: headBottom + 3 * px, width: 0.5 * px, height: 2 * px)).fill()
-            NSBezierPath(ovalIn: NSRect(x: centerX - 0.75 * px + antennaWave, y: headBottom + 5 * px, width: 1.5 * px, height: 1.5 * px)).fill()
+            // Eyes — transparent cutouts, same position logic as idle
+            NSGraphicsContext.current?.compositingOperation = .clear
+            let eyeSize = px
+            let eyeY    = bodyRect.minY + bodyH - 1.5 * px
+            NSBezierPath(rect: NSRect(x: bodyRect.midX - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.midX + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
 
             return true
         }

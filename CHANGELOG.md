@@ -1,5 +1,10 @@
 # RunClaude Changelog
 
+## [2026-03-26] — PixelRobot run animation redesign
+
+### Changed
+- **SpriteGenerator.swift** — Rewrote `PixelRobotPack.drawRunFrame` to match the idle frame's body design (6×5 px squat block, 4 evenly-spaced legs, 2×2 px arm stubs, transparent eye cutouts). Body sways left/right ±0.5 pt and bounces vertically on each step. Both arms move in the same direction (±1.2 pt swing) for a synchronised pumping feel. Legs alternate in pairs (±1 pt lift). Removed the old separate head and antenna.
+
 ## [2026-03-26] — Witch PNG pack, PixelRobot idle redesign
 
 ### Added
