@@ -1,5 +1,10 @@
 # RunClaude Changelog
 
+## [2026-03-26] — Ghost sprite pack
+
+### Added
+- **SpriteGenerator.swift** — New `GhostPack` sprite (id: `"ghost"`, display name "Ghost", 18×18 frame). Body is a single `NSBezierPath`: semicircular rounded head → straight sides → 3-bump wavy skirt. Run animation (8 frames) bobs ±1.5 px with a side tilt that sways in sync for a floaty feel; idle animation (6 frames) drifts ±0.8 px and blinks at phase ≈0.85. Eyes are white ovals; blink state replaces them with short white line segments. Registered in `SpritePackRegistry.allPacks` — appears automatically in the Settings dropdown.
+
 ## [2026-03-26] — Phase 4: Sprite packs, cost alerts, trends, Homebrew
 
 ### Added

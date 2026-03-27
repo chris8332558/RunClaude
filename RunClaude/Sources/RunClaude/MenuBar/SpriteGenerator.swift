@@ -25,7 +25,8 @@ struct SpritePackRegistry {
         ClaudeBeanPack(),
         RunningCatPack(),
         PixelRobotPack(),
-        NyanBarPack()
+        NyanBarPack(),
+        GhostPack()
     ]
 
     static let defaultPackId = "claude-bean"
@@ -413,6 +414,113 @@ struct NyanBarPack: SpritePack {
                 let barRect = NSRect(x: x, y: y, width: barWidth, height: height)
                 NSBezierPath(roundedRect: barRect, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
             }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+}
+
+// MARK: - Pack 5: Ghost
+
+/// A cute floating ghost with a rounded head, straight sides, and a 3-bump wavy skirt.
+struct GhostPack: SpritePack {
+    let id = "ghost"
+    let displayName = "Ghost"
+    let frameSize = NSSize(width: 18, height: 18)
+
+    func generateRunFrames() -> [NSImage] {
+        (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }
+    }
+
+    func generateIdleFrames() -> [NSImage] {
+        (0..<6).map { drawIdleFrame(phase: Double($0) / 6.0) }
+    }
+
+    // Draws the ghost body + eyes. bodyBottom is the lowest point of the wavy skirt.
+    private func drawGhostBody(centerX: CGFloat, bodyBottom: CGFloat, tilt: CGFloat = 0, blinking: Bool = false) {
+        let bodyW: CGFloat = 12.0
+        let radius: CGFloat = bodyW / 2       // 6 — radius of the rounded head
+        let sideH: CGFloat = 6.0             // height of the straight-sided torso section
+        let left  = centerX - radius + tilt
+        let right = centerX + radius + tilt
+        let skirtY     = bodyBottom + 2       // where bumps join the body sides
+        let arcCenterY = skirtY + sideH       // centre of the semicircular head
+
+        // --- body + skirt ---
+        NSColor.black.setFill()
+        let ghost = NSBezierPath()
+        ghost.move(to: NSPoint(x: left, y: arcCenterY))
+        // Rounded top: counterclockwise arc from 180° (left) through 90° (top) to 0° (right)
+        ghost.appendArc(
+            withCenter: NSPoint(x: centerX + tilt, y: arcCenterY),
+            radius: radius,
+            startAngle: 180,
+            endAngle: 0,
+            clockwise: false
+        )
+        ghost.line(to: NSPoint(x: right, y: skirtY))
+
+        // Three downward bumps from right to left, each bodyW/3 wide, peaking at bodyBottom
+        let bw = bodyW / 3
+        let peakY = bodyBottom
+        ghost.curve(
+            to: NSPoint(x: right - bw, y: skirtY),
+            controlPoint1: NSPoint(x: right - bw * 0.3, y: peakY),
+            controlPoint2: NSPoint(x: right - bw * 0.7, y: peakY)
+        )
+        ghost.curve(
+            to: NSPoint(x: left + bw, y: skirtY),
+            controlPoint1: NSPoint(x: right - bw * 1.25, y: peakY),
+            controlPoint2: NSPoint(x: left  + bw * 1.25, y: peakY)
+        )
+        ghost.curve(
+            to: NSPoint(x: left, y: skirtY),
+            controlPoint1: NSPoint(x: left + bw * 0.7, y: peakY),
+            controlPoint2: NSPoint(x: left + bw * 0.3, y: peakY)
+        )
+        ghost.close()
+        ghost.fill()
+
+        // --- eyes (white, set against the black body) ---
+        let eyeY = arcCenterY + 1.0
+        NSColor.white.setFill()
+        if blinking {
+            NSColor.white.setStroke()
+            let path = NSBezierPath()
+            path.lineWidth = 1.0
+            path.lineCapStyle = .round
+            path.move(to: NSPoint(x: centerX + tilt - 3.5, y: eyeY))
+            path.line(to: NSPoint(x: centerX + tilt - 1.2, y: eyeY))
+            path.move(to: NSPoint(x: centerX + tilt + 1.2, y: eyeY))
+            path.line(to: NSPoint(x: centerX + tilt + 3.5, y: eyeY))
+            path.stroke()
+        } else {
+            NSBezierPath(ovalIn: NSRect(x: centerX + tilt - 4.0, y: eyeY - 1.2, width: 2.4, height: 2.4)).fill()
+            NSBezierPath(ovalIn: NSRect(x: centerX + tilt + 1.6, y: eyeY - 1.2, width: 2.4, height: 2.4)).fill()
+        }
+    }
+
+    private func drawRunFrame(phase: Double) -> NSImage {
+        let size = frameSize
+        let image = NSImage(size: size, flipped: false) { _ in
+            let centerX = size.width / 2
+            let bob  = CGFloat(sin(phase * .pi * 2)) * 1.5
+            let tilt = CGFloat(sin(phase * .pi * 2)) * 0.6
+            self.drawGhostBody(centerX: centerX, bodyBottom: 2.5 + bob, tilt: tilt)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    private func drawIdleFrame(phase: Double) -> NSImage {
+        let size = frameSize
+        let image = NSImage(size: size, flipped: false) { _ in
+            let centerX = size.width / 2
+            let bob = CGFloat(sin(phase * .pi * 2)) * 0.8
+            let isBlinking = abs(phase - 0.85) < 0.08
+            self.drawGhostBody(centerX: centerX, bodyBottom: 3.0 + bob, blinking: isBlinking)
             return true
         }
         image.isTemplate = true
