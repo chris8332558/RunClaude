@@ -12,7 +12,8 @@ let package = Package(
             name: "RunClaude",
             path: "Sources/RunClaude",
             resources: [
-                .copy("../../Resources/Info.plist")
+                .copy("../../Resources/Info.plist"),
+                .copy("witch_run")
             ]
         )
     ]

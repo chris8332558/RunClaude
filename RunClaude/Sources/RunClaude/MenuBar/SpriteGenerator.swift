@@ -26,7 +26,8 @@ struct SpritePackRegistry {
         RunningCatPack(),
         PixelRobotPack(),
         NyanBarPack(),
-        GhostPack()
+        GhostPack(),
+        WitchPack()
     ]
 
     static let defaultPackId = "claude-bean"
@@ -142,7 +143,6 @@ struct RunningCatPack: SpritePack {
             let bodyY: CGFloat = groundY + 5 + CGFloat(sin(phase * .pi * 2)) * 1.5
             let bodyLen: CGFloat = 10.0
             let bodyLeft: CGFloat = 4.0
-            let bodyMidX: CGFloat = bodyLeft + bodyLen / 2
             let bodyRight: CGFloat = bodyLeft + bodyLen
 
             NSColor.black.setFill()
@@ -327,47 +327,54 @@ struct PixelRobotPack: SpritePack {
     }
 
     private func drawIdleFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
+        let size = frameSize  // 18×18
+        let image = NSImage(size: size, flipped: false) { _ in
             let px: CGFloat = 2.0
-            let centerX: CGFloat = size.width / 2
-            let groundY: CGFloat = 1.0
+            let cx: CGFloat = size.width / 2   // 9
+            let groundY: CGFloat = 1.5
+            let breathe = CGFloat(sin(phase * .pi * 2)) * 0.4
 
             NSColor.black.setFill()
 
-            // Legs (standing)
-            NSBezierPath(rect: NSRect(x: centerX - 2.5 * px, y: groundY, width: px, height: 3 * px)).fill()
-            NSBezierPath(rect: NSRect(x: centerX + 1.5 * px, y: groundY, width: px, height: 3 * px)).fill()
+            // Body: 6×3 px block (12×6 pt) — wide, squat rectangle matching the reference
+            let bodyW = 6 * px   // 12 pt
+            let bodyH = 5 * px   // 6 pt
+            let bodyBottom = groundY + 1.5 * px + breathe
+            let bodyRect = NSRect(x: cx - bodyW / 2, y: bodyBottom, width: bodyW, height: bodyH)
+            NSBezierPath(rect: bodyRect).fill()
 
-            let bodyBottom = groundY + 3 * px
+            // Arms: 1×2 px stubs centred vertically on the body sides
+            let armW = 2 * px
+            let armH = 2 * px
+            let armY = bodyRect.minY + (bodyH - armH) / 2
+            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armY, width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armY, width: armW, height: armH)).fill()
 
-            // Body
-            NSBezierPath(rect: NSRect(x: centerX - 3 * px, y: bodyBottom, width: 6 * px, height: 4 * px)).fill()
-
-            // Arms (down)
-            NSBezierPath(rect: NSRect(x: centerX - 4 * px, y: bodyBottom, width: px, height: 2 * px)).fill()
-            NSBezierPath(rect: NSRect(x: centerX + 3 * px, y: bodyBottom, width: px, height: 2 * px)).fill()
-
-            // Head
-            let headBottom = bodyBottom + 4 * px
-            NSBezierPath(rect: NSRect(x: centerX - 2.5 * px, y: headBottom, width: 5 * px, height: 3 * px)).fill()
-
-            // Eyes (blink every other frame)
-            NSColor.white.setFill()
-            let isBlinking = abs(phase - 0.5) < 0.15
-            if isBlinking {
-                NSBezierPath(rect: NSRect(x: centerX - 1.5 * px, y: headBottom + px, width: px, height: 0.3 * px)).fill()
-                NSBezierPath(rect: NSRect(x: centerX + 0.5 * px, y: headBottom + px, width: px, height: 0.3 * px)).fill()
-            } else {
-                NSBezierPath(rect: NSRect(x: centerX - 1.5 * px, y: headBottom + px, width: px, height: px)).fill()
-                NSBezierPath(rect: NSRect(x: centerX + 0.5 * px, y: headBottom + px, width: px, height: px)).fill()
+            // Legs: 4 legs, 1 px wide, evenly spaced, running from body bottom to ground
+            let legW = px
+            let gap = (bodyW - legW) / 3 // The total space available divided by the 3 gaps
+            for i in 0...3 {
+                let xPos = bodyRect.minX + CGFloat(i) * gap
+                // let xPos = bodyRect.minX + CGFloat(i) * bodyW / 5 - legW / 2
+                NSBezierPath(rect: NSRect(x: xPos, y: groundY, width: legW, height: bodyBottom - groundY)).fill()
             }
 
-            // Antenna (gentle bob)
-            NSColor.black.setFill()
-            let bob = CGFloat(sin(phase * .pi * 2)) * 0.5
-            NSBezierPath(rect: NSRect(x: centerX - 0.25 * px, y: headBottom + 3 * px, width: 0.5 * px, height: 2 * px)).fill()
-            NSBezierPath(ovalIn: NSRect(x: centerX - 0.75 * px, y: headBottom + 5 * px + bob, width: 1.5 * px, height: 1.5 * px)).fill()
+            // Eyes: transparent cutouts so the menu bar background shows through the black body
+            NSGraphicsContext.current?.compositingOperation = .clear
+            let eyeSize = px
+            let eyeY = bodyRect.minY + bodyH - 1.5 * px
+            let eyeL = NSRect(x: cx - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)
+            let eyeR = NSRect(x: cx + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)
+
+            let isBlinking = abs(phase - 0.5) < 0.1
+            if isBlinking {
+                NSBezierPath(rect: NSRect(x: eyeL.minX, y: eyeL.midY - 0.4, width: eyeSize, height: 0.8)).fill()
+                NSBezierPath(rect: NSRect(x: eyeR.minX, y: eyeR.midY - 0.4, width: eyeSize, height: 0.8)).fill()
+            } else {
+                NSBezierPath(rect: eyeL).fill()
+                NSBezierPath(rect: eyeR).fill()
+            }
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
 
             return true
         }
@@ -525,6 +532,37 @@ struct GhostPack: SpritePack {
         }
         image.isTemplate = true
         return image
+    }
+}
+
+// MARK: - Pack 6: Witch
+
+/// A witch-on-broomstick character loaded from PNG sprite sheet frames.
+/// Source images: B_witch_1…6.png (111×48 px RGBA), scaled to fit the menu bar.
+struct WitchPack: SpritePack {
+    let id = "witch"
+    let displayName = "Witch"
+    // Maintain 111:48 aspect ratio at 18 pt height → ~42×18 pt
+    let frameSize = NSSize(width: 20, height: 30)
+
+    func generateRunFrames() -> [NSImage] {
+        (1...6).compactMap { loadFrame("B_witch_\($0)") }
+    }
+
+    func generateIdleFrames() -> [NSImage] {
+        // Gentle hover: alternate first two frames
+        [1, 2, 1, 2, 1, 2].compactMap { loadFrame("B_witch_\($0)") }
+    }
+
+    private func loadFrame(_ name: String) -> NSImage? {
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "witch_run"),
+              let source = NSImage(contentsOf: url) else { return nil }
+        let scaled = NSImage(size: frameSize, flipped: false) { rect in
+            source.draw(in: rect)
+            return true
+        }
+        scaled.isTemplate = true
+        return scaled
     }
 }
 

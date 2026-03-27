@@ -1,5 +1,21 @@
 # RunClaude Changelog
 
+## [2026-03-26] — Witch PNG pack, PixelRobot idle redesign
+
+### Added
+- **SpriteGenerator.swift** — New `WitchPack` (id: `"witch"`, display name "Witch", 42×18 frame). Loads 6 RGBA PNG frames (`B_witch_1…6.png`) from the app bundle, scales each to `frameSize` using an `NSImage` drawing handler, and marks them as template images. Run animation plays all 6 frames; idle alternates frames 1–2 for a hovering effect.
+- **Sources/RunClaude/witch_run/** — 6 PNG sprite frames copied into the SPM target source directory so `Bundle.module` can resolve them at runtime.
+- **Package.swift** — Added `.copy("witch_run")` resource rule to bundle the PNG frames.
+
+### Changed
+- **SpriteGenerator.swift** — Rewrote `PixelRobotPack.drawIdleFrame` to match the reference pixel-art design: wide 6×5 px squat body, 2×2 px arm stubs on both sides, 4 evenly-spaced 1 px legs, and two 1×1 px eye cutouts in the upper body. Eyes use `.clear` compositing to punch transparent holes through the black body so they are visually distinct in both light and dark mode regardless of `isTemplate = true`.
+- **SpriteGenerator.swift** — Fixed `GhostPack.drawIdleFrame`: `isTemplate` was accidentally set to `false`, preventing correct light/dark rendering.
+- **SpriteGenerator.swift** — Removed unused `bodyMidX` variable in `RunningCatPack.drawRunFrame` (was causing a compiler warning).
+
+### Decisions
+- **`.clear` compositing for eyes** — Template images ignore color; all opaque pixels render as the same system tint. White fills on a black body are indistinguishable. Using `NSGraphicsContext.current?.compositingOperation = .clear` creates truly transparent pixels, letting the menu bar background show through as the contrasting "eye" color.
+- **PNGs inside SPM target directory** — SPM requires resources to live within the target's source directory for `Bundle.module` to be generated. The witch PNGs were copied from `Resources/Assets.xcassets/witch_run/` into `Sources/RunClaude/witch_run/` to satisfy this constraint.
+
 ## [2026-03-26] — Ghost sprite pack
 
 ### Added
