@@ -1,5 +1,26 @@
 # RunClaude Changelog
 
+## [2026-03-27] — Live session monitor, sparkline fix, speed tuning
+
+### Added
+- **Models.swift** — New `SessionInfo` struct with session start time, elapsed seconds, burn rate (tok/min), burn status (IDLE/LOW/NORMAL/HIGH/EXTREME), projected tokens and cost over an 8-hour session, projection status (ON TRACK/ELEVATED/HIGH), and active model names. New `SparklineBucket` struct for typed 5-minute sparkline data.
+- **TokenAggregator.swift** — `sessionStartTime` tracking (earliest today record), `buildSessionInfo()` method that computes burn rate, classifies status by threshold, linearly projects tokens/cost over 8h, and extracts active model short names. Session resets on midnight crossing.
+- **UsagePopoverView.swift** — New "Live" tab (default selected) inspired by `ccusage blocks --live` CLI output. Three card-style blocks: SESSION (cyan progress bar, start time, remaining hours), USAGE (green progress bar, token count, burn rate with colored status badge, cost), PROJECTION (projected tokens/cost with ON TRACK/ELEVATED/HIGH badge). Models row and refresh indicator at bottom. Helper views: `liveBlock`, `liveProgressBar`, `liveStatusBadge`.
+
+### Changed
+- **SpeedMapper.swift** — Tuned animation speed defaults: `idleInterval` 0.8→0.4s, `sprintInterval` 0.04→0.03s, `scaleFactor` 50→40, interval numerator 0.5→0.1. Sprites now move roughly 2–3× faster at typical token rates.
+- **UsagePopoverView.swift** — Sparkline section now reads `engine.state.sparklineBuckets` (5-minute aggregator buckets) instead of `engine.state.recentSamples` (10s sliding window), fixing the always-empty "Activity (last 6h)" chart. Tab picker expanded to Live | Today | 7 Days | 30 Days with Live as default. Popover height increased 440→480.
+- **Models.swift** — `UsageState` gained `sparklineBuckets: [SparklineBucket]` and `sessionInfo: SessionInfo` fields.
+- **TokenAggregator.swift** — `buildState()` now populates `sparklineBuckets` from `sparklineData` and `sessionInfo` from `buildSessionInfo()`.
+
+### Fixed
+- **UsagePopoverView.swift** — "Activity (last 6h)" sparkline was always empty because it read the 10-second sliding window (`recentSamples`) instead of the 5-minute bucket data (`sparklineData`). The bucket data existed in the aggregator but was never wired through `UsageState` to the view.
+
+### Decisions
+- **8-hour session projection window** — Chose 8 hours as the default projection baseline since it represents a typical workday. Burn rate is computed as total tokens / elapsed minutes (simple average) rather than a windowed rate, so it stabilizes over time rather than spiking with short bursts.
+- **Burn rate thresholds** — IDLE (<10 tok/min), LOW (<500), NORMAL (<5000), HIGH (<20000), EXTREME (20000+). These were calibrated against typical Claude Code usage patterns where Sonnet generates ~200-500 tok/s in bursts with idle gaps between requests.
+- **Sparkline data path redesign** — Added a dedicated `SparklineBucket` type rather than reusing `TokenSample` to make the data flow explicit: aggregator buckets → `UsageState.sparklineBuckets` → sparkline chart. The sliding window samples serve a different purpose (velocity calculation) and have different lifetimes.
+
 ## [2026-03-26] — PixelRobot run animation redesign
 
 ### Changed

@@ -63,13 +63,57 @@ struct HistoryDataPoint: Identifiable, Sendable {
     let label: String  // e.g. "Mon", "Mar 15", "Week 12"
 }
 
+// MARK: - Live Session Info
+
+/// Live session metrics inspired by `ccusage blocks --live`.
+struct SessionInfo: Sendable {
+    /// Timestamp of the first token record seen today.
+    var sessionStart: Date?
+    /// Seconds elapsed since session start.
+    var elapsedSeconds: TimeInterval = 0
+    /// Average burn rate in tokens per minute over the session.
+    var burnRatePerMinute: Double = 0
+    /// Burn rate status classification.
+    var burnStatus: BurnStatus = .idle
+    /// Projected total tokens if current burn rate continues for 8 hours from session start.
+    var projectedTokens: Int = 0
+    /// Projected cost at current burn rate over 8h session.
+    var projectedCost: Double = 0
+    /// Projection status classification.
+    var projectionStatus: ProjectionStatus = .onTrack
+    /// List of model short names active this session.
+    var activeModels: [String] = []
+
+    enum BurnStatus: String, Sendable {
+        case idle = "IDLE"
+        case low = "LOW"
+        case normal = "NORMAL"
+        case high = "HIGH"
+        case extreme = "EXTREME"
+    }
+
+    enum ProjectionStatus: String, Sendable {
+        case onTrack = "ON TRACK"
+        case elevated = "ELEVATED"
+        case high = "HIGH"
+    }
+}
+
 // MARK: - Engine State
+
+/// A single 5-minute bucket for the activity sparkline.
+struct SparklineBucket: Sendable {
+    let date: Date
+    let tokens: Int
+}
 
 /// Published state from the token usage engine, consumed by the UI layer.
 struct UsageState: Sendable {
     var tokensPerSecond: Double = 0.0
     var todayUsage: DailyUsage = DailyUsage(date: Date())
     var recentSamples: [TokenSample] = []
+    var sparklineBuckets: [SparklineBucket] = []  // 5-minute buckets for last 6h
+    var sessionInfo: SessionInfo = SessionInfo()  // live session monitor
     var isActive: Bool = false
     var weeklyHistory: [HistoryDataPoint] = []   // last 7 days
     var monthlyHistory: [HistoryDataPoint] = []  // last 30 days

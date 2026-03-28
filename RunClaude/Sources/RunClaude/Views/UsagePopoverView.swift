@@ -7,9 +7,10 @@ import Charts
 /// Features a tab bar to switch between Today, Week, and Month views.
 struct UsagePopoverView: View {
     @ObservedObject var engine: TokenUsageEngine
-    @State private var selectedTab: PopoverTab = .today
+    @State private var selectedTab: PopoverTab = .live
 
     enum PopoverTab: String, CaseIterable {
+        case live = "Live"
         case today = "Today"
         case week = "7 Days"
         case month = "30 Days"
@@ -32,6 +33,8 @@ struct UsagePopoverView: View {
 
             // Tab content
             switch selectedTab {
+            case .live:
+                liveSessionTab
             case .today:
                 todayTab
             case .week:
@@ -46,7 +49,7 @@ struct UsagePopoverView: View {
             footerSection
         }
         .padding(14)
-        .frame(width: 320, height: 440)
+        .frame(width: 320, height: 480)
     }
 
     // MARK: - Header
@@ -71,6 +74,205 @@ struct UsagePopoverView: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.accentColor)
         }
+    }
+
+    // MARK: - Live Session Tab
+
+    private var liveSessionTab: some View {
+        let session = engine.state.sessionInfo
+        let usage = engine.state.todayUsage
+
+        return VStack(alignment: .leading, spacing: 8) {
+            // SESSION block
+            liveBlock(icon: "circle.fill", iconColor: engine.state.isActive ? .cyan : .gray, title: "SESSION") {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Progress bar
+                    let sessionHours: Double = 8.0
+                    let progress = min(session.elapsedSeconds / (sessionHours * 3600), 1.0)
+                    liveProgressBar(value: progress, color: .cyan)
+
+                    HStack {
+                        Text("Started: \(formatTime(session.sessionStart))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        let remaining = max(sessionHours - session.elapsedSeconds / 3600, 0)
+                        Text(String(format: "%.1fh left", remaining))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            // USAGE block
+            liveBlock(icon: "flame.fill", iconColor: .orange, title: "USAGE") {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Token progress bar (scaled to projected)
+                    let tokenProgress = session.projectedTokens > 0
+                        ? min(Double(usage.totalTokens) / Double(session.projectedTokens), 1.0)
+                        : 0.0
+                    liveProgressBar(value: tokenProgress, color: .green)
+
+                    HStack {
+                        Text("Tokens: \(formatTokenCount(usage.totalTokens))")
+                            .font(.system(size: 10, design: .monospaced))
+                        Spacer()
+                        Text("(\(formatTokenCount(session.projectedTokens)) proj)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Burn Rate: \(formatBurnRate(session.burnRatePerMinute)) tok/min")
+                            .font(.system(size: 10, design: .monospaced))
+                            .fontWeight(.semibold)
+                        liveStatusBadge(session.burnStatus.rawValue, color: burnStatusColor(session.burnStatus))
+                        Spacer()
+                        Text("Cost: \(CostCalculator.formatCost(usage.estimatedCost))")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                }
+            }
+
+            // PROJECTION block
+            liveBlock(icon: "chart.line.uptrend.xyaxis", iconColor: .green, title: "PROJECTION") {
+                VStack(alignment: .leading, spacing: 4) {
+                    let projProgress = session.projectedTokens > 0
+                        ? min(Double(usage.totalTokens) / Double(session.projectedTokens), 1.0)
+                        : 0.0
+                    liveProgressBar(value: projProgress, color: projectionStatusColor(session.projectionStatus))
+
+                    HStack {
+                        liveStatusBadge(session.projectionStatus.rawValue, color: projectionStatusColor(session.projectionStatus))
+                        Spacer()
+                        Text("Tokens: \(formatTokenCount(session.projectedTokens))")
+                            .font(.system(size: 10, design: .monospaced))
+                        Spacer()
+                        Text("Cost: \(CostCalculator.formatCost(session.projectedCost))")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                }
+            }
+
+            // MODELS block
+            HStack(spacing: 4) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                Text("Models:")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                Text(session.activeModels.isEmpty ? "none" : session.activeModels.joined(separator: ", "))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.primary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            .cornerRadius(6)
+
+            // Refresh indicator
+            HStack {
+                Spacer()
+                Text("Refreshing every 0.5s")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(Color.secondary.opacity(0.6))
+                Circle()
+                    .fill(engine.state.isActive ? Color.green : Color.gray)
+                    .frame(width: 5, height: 5)
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Live Session Helpers
+
+    private func liveBlock<Content: View>(
+        icon: String,
+        iconColor: Color,
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundColor(iconColor)
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+            }
+            content()
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
+        )
+    }
+
+    private func liveProgressBar(value: Double, color: Color) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                // Background track
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.gray.opacity(0.15))
+                    .frame(height: 6)
+
+                // Filled portion
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(color)
+                    .frame(width: max(geo.size.width * CGFloat(value), 0), height: 6)
+            }
+        }
+        .frame(height: 6)
+    }
+
+    private func liveStatusBadge(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .foregroundColor(color)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.15))
+            .cornerRadius(3)
+    }
+
+    private func burnStatusColor(_ status: SessionInfo.BurnStatus) -> Color {
+        switch status {
+        case .idle:    return .gray
+        case .low:     return .blue
+        case .normal:  return .green
+        case .high:    return .orange
+        case .extreme: return .red
+        }
+    }
+
+    private func projectionStatusColor(_ status: SessionInfo.ProjectionStatus) -> Color {
+        switch status {
+        case .onTrack:  return .green
+        case .elevated: return .orange
+        case .high:     return .red
+        }
+    }
+
+    private func formatTime(_ date: Date?) -> String {
+        guard let date = date else { return "--:--" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm:ss a"
+        return formatter.string(from: date)
+    }
+
+    private func formatBurnRate(_ rate: Double) -> String {
+        if rate >= 1_000_000 {
+            return String(format: "%.1fM", rate / 1_000_000)
+        } else if rate >= 1_000 {
+            return String(format: "%.0fK", rate / 1_000)
+        }
+        return String(format: "%.0f", rate)
     }
 
     // MARK: - Today Tab
@@ -155,15 +357,15 @@ struct UsagePopoverView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            let data = engine.state.recentSamples
+            let data = engine.state.sparklineBuckets
             if data.isEmpty {
                 emptyChartPlaceholder(text: "No recent activity")
             } else {
                 Chart {
-                    ForEach(Array(data.enumerated()), id: \.offset) { index, sample in
+                    ForEach(Array(data.enumerated()), id: \.offset) { index, bucket in
                         BarMark(
                             x: .value("Time", index),
-                            y: .value("Tokens", sample.tokens)
+                            y: .value("Tokens", bucket.tokens)
                         )
                         .foregroundStyle(Color.accentColor.opacity(0.7))
                     }

@@ -25,6 +25,12 @@ final class TokenAggregator {
     /// Populated from all ingested records, used for weekly/monthly charts.
     private var historicalDays: [Date: DailyUsage] = [:]
 
+    /// Timestamp of the first token record seen today (session start proxy).
+    private var sessionStartTime: Date?
+
+    /// Assumed session duration for projection (8 hours).
+    private let sessionDurationHours: Double = 8.0
+
     // MARK: - Init
 
     init(windowDuration: TimeInterval = 10.0) {
@@ -43,6 +49,7 @@ final class TokenAggregator {
         // Reset daily usage if we've crossed midnight
         if dailyUsage.date != todayStart {
             dailyUsage = DailyUsage(date: todayStart)
+            sessionStartTime = nil
         }
 
         for record in records {
@@ -51,6 +58,13 @@ final class TokenAggregator {
 
             // Add to sliding window
             recentSamples.append(TokenSample(timestamp: record.timestamp, tokens: tokens))
+
+            // Track session start (first today record)
+            if recordDayStart == todayStart {
+                if sessionStartTime == nil || record.timestamp < sessionStartTime! {
+                    sessionStartTime = record.timestamp
+                }
+            }
 
             // Add to daily aggregation (only count today's records)
             if recordDayStart == todayStart {
@@ -153,12 +167,81 @@ final class TokenAggregator {
         buildHistory(days: 30)
     }
 
+    /// Build live session info for the monitor panel.
+    func buildSessionInfo() -> SessionInfo {
+        let now = Date()
+        let todayData = today
+
+        guard let start = sessionStartTime, todayData.totalTokens > 0 else {
+            return SessionInfo()
+        }
+
+        let elapsed = now.timeIntervalSince(start)
+        let elapsedMinutes = max(elapsed / 60.0, 0.1) // avoid division by zero
+        let burnRate = Double(todayData.totalTokens) / elapsedMinutes
+
+        // Burn status based on tokens/min
+        let burnStatus: SessionInfo.BurnStatus
+        switch burnRate {
+        case ..<10:     burnStatus = .idle
+        case ..<500:    burnStatus = .low
+        case ..<5000:   burnStatus = .normal
+        case ..<20000:  burnStatus = .high
+        default:        burnStatus = .extreme
+        }
+
+        // Project total tokens over full session duration
+        let sessionMinutes = sessionDurationHours * 60.0
+        let projectedTokens = Int(burnRate * sessionMinutes)
+
+        // Project cost: scale today's cost by (sessionMinutes / elapsedMinutes)
+        let todayCost = todayData.estimatedCost
+        let projectedCost = todayCost * (sessionMinutes / elapsedMinutes)
+
+        // Projection status based on projected daily cost
+        let projectionStatus: SessionInfo.ProjectionStatus
+        switch projectedCost {
+        case ..<10:   projectionStatus = .onTrack
+        case ..<50:   projectionStatus = .elevated
+        default:      projectionStatus = .high
+        }
+
+        // Active models
+        let models = todayData.modelBreakdown.keys
+            .sorted()
+            .map { shortModelName($0) }
+
+        return SessionInfo(
+            sessionStart: start,
+            elapsedSeconds: elapsed,
+            burnRatePerMinute: burnRate,
+            burnStatus: burnStatus,
+            projectedTokens: projectedTokens,
+            projectedCost: projectedCost,
+            projectionStatus: projectionStatus,
+            activeModels: models
+        )
+    }
+
+    /// Short model name for session display.
+    private func shortModelName(_ model: String) -> String {
+        let lower = model.lowercased()
+        if lower.contains("opus") { return "opus-4" }
+        if lower.contains("sonnet") { return "sonnet-4" }
+        if lower.contains("haiku") { return "haiku-3.5" }
+        let parts = model.split(separator: "-")
+        if parts.count > 2 { return parts.prefix(3).joined(separator: "-") }
+        return model
+    }
+
     /// Build the full usage state snapshot for the UI.
     func buildState() -> UsageState {
         UsageState(
             tokensPerSecond: tokensPerSecond,
             todayUsage: today,
             recentSamples: Array(recentSamples.suffix(100)),
+            sparklineBuckets: sparklineData.map { SparklineBucket(date: $0.date, tokens: $0.tokens) },
+            sessionInfo: buildSessionInfo(),
             isActive: isActive,
             weeklyHistory: weeklyHistory,
             monthlyHistory: monthlyHistory

@@ -26,9 +26,9 @@ struct SpeedMapper {
     let idleThreshold: Double
 
     init(
-        idleInterval: TimeInterval = 0.8,
-        sprintInterval: TimeInterval = 0.04,
-        scaleFactor: Double = 50.0,
+        idleInterval: TimeInterval = 0.4,
+        sprintInterval: TimeInterval = 0.03,
+        scaleFactor: Double = 40.0,
         idleThreshold: Double = 1.0
     ) {
         self.idleInterval = idleInterval
@@ -45,7 +45,7 @@ struct SpeedMapper {
 
         // Logarithmic scaling: fast ramp at low rates, diminishing returns at high rates
         let speed = log2(1.0 + tokensPerSecond / scaleFactor)
-        let interval = max(sprintInterval, 0.5 / speed)
+        let interval = max(sprintInterval, 0.1 / speed)
         return min(interval, idleInterval)
     }
 
