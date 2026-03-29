@@ -116,7 +116,7 @@ final class LogFileWatcher {
 
                 let path = url.path
                 let currentOffset = fileOffsets[path] ?? 0
-                let (records, newOffset) = JSONLParser.parseNewLines(in: url, fromOffset: currentOffset)
+                let (records, newOffset) = JSONLParser.parseNewLines(in: url, fromOffset: currentOffset, sourceFile: path)
                 fileOffsets[path] = newOffset
 
                 // Deduplicate

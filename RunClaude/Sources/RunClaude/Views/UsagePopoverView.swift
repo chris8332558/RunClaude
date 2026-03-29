@@ -14,6 +14,7 @@ struct UsagePopoverView: View {
         case today = "Today"
         case week = "7 Days"
         case month = "30 Days"
+        case profile = "Profile"
     }
 
     var body: some View {
@@ -41,6 +42,8 @@ struct UsagePopoverView: View {
                 historyTab(data: engine.state.weeklyHistory, title: "Last 7 Days")
             case .month:
                 historyTab(data: engine.state.monthlyHistory, title: "Last 30 Days")
+            case .profile:
+                profileTab
             }
 
             Spacer(minLength: 0)
@@ -79,105 +82,68 @@ struct UsagePopoverView: View {
     // MARK: - Live Session Tab
 
     private var liveSessionTab: some View {
-        let session = engine.state.sessionInfo
-        let usage = engine.state.todayUsage
+        let sessions = engine.state.liveSessions
+        let activeSessions = sessions.filter { $0.isActive }
+        let totalTokens = sessions.reduce(0) { $0 + $1.totalTokens }
+        let totalCost = sessions.reduce(0.0) { $0 + $1.estimatedCost }
 
-        return VStack(alignment: .leading, spacing: 8) {
-            // SESSION block
-            liveBlock(icon: "circle.fill", iconColor: engine.state.isActive ? .cyan : .gray, title: "SESSION") {
-                VStack(alignment: .leading, spacing: 4) {
-                    // Progress bar
-                    let sessionHours: Double = 8.0
-                    let progress = min(session.elapsedSeconds / (sessionHours * 3600), 1.0)
-                    liveProgressBar(value: progress, color: .cyan)
+        return VStack(alignment: .leading, spacing: 6) {
+            // Summary header
+            HStack(spacing: 12) {
+                liveStatChip(
+                    value: "\(activeSessions.count)/\(sessions.count)",
+                    label: "active",
+                    color: activeSessions.isEmpty ? .gray : .green
+                )
+                liveStatChip(
+                    value: formatTokenCount(totalTokens),
+                    label: "tokens",
+                    color: .cyan
+                )
+                liveStatChip(
+                    value: CostCalculator.formatCost(totalCost),
+                    label: "cost",
+                    color: .orange
+                )
+            }
 
-                    HStack {
-                        Text("Started: \(formatTime(session.sessionStart))")
-                            .font(.system(size: 10, design: .monospaced))
+            Divider()
+
+            if sessions.isEmpty {
+                Spacer()
+                HStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                            .font(.title2)
                             .foregroundColor(.secondary)
-                        Spacer()
-                        let remaining = max(sessionHours - session.elapsedSeconds / 3600, 0)
-                        Text(String(format: "%.1fh left", remaining))
-                            .font(.system(size: 10, design: .monospaced))
+                        Text("No sessions detected")
+                            .font(.caption)
                             .foregroundColor(.secondary)
+                        Text("Start a Claude Code session to see live stats")
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                    Spacer()
+                }
+                Spacer()
+            } else {
+                // Scrollable session list
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(spacing: 6) {
+                        ForEach(sessions) { session in
+                            liveSessionCard(session)
+                        }
                     }
                 }
             }
 
-            // USAGE block
-            liveBlock(icon: "flame.fill", iconColor: .orange, title: "USAGE") {
-                VStack(alignment: .leading, spacing: 4) {
-                    // Token progress bar (scaled to projected)
-                    let tokenProgress = session.projectedTokens > 0
-                        ? min(Double(usage.totalTokens) / Double(session.projectedTokens), 1.0)
-                        : 0.0
-                    liveProgressBar(value: tokenProgress, color: .green)
-
-                    HStack {
-                        Text("Tokens: \(formatTokenCount(usage.totalTokens))")
-                            .font(.system(size: 10, design: .monospaced))
-                        Spacer()
-                        Text("(\(formatTokenCount(session.projectedTokens)) proj)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack {
-                        Text("Burn Rate: \(formatBurnRate(session.burnRatePerMinute)) tok/min")
-                            .font(.system(size: 10, design: .monospaced))
-                            .fontWeight(.semibold)
-                        liveStatusBadge(session.burnStatus.rawValue, color: burnStatusColor(session.burnStatus))
-                        Spacer()
-                        Text("Cost: \(CostCalculator.formatCost(usage.estimatedCost))")
-                            .font(.system(size: 10, design: .monospaced))
-                    }
-                }
-            }
-
-            // PROJECTION block
-            liveBlock(icon: "chart.line.uptrend.xyaxis", iconColor: .green, title: "PROJECTION") {
-                VStack(alignment: .leading, spacing: 4) {
-                    let projProgress = session.projectedTokens > 0
-                        ? min(Double(usage.totalTokens) / Double(session.projectedTokens), 1.0)
-                        : 0.0
-                    liveProgressBar(value: projProgress, color: projectionStatusColor(session.projectionStatus))
-
-                    HStack {
-                        liveStatusBadge(session.projectionStatus.rawValue, color: projectionStatusColor(session.projectionStatus))
-                        Spacer()
-                        Text("Tokens: \(formatTokenCount(session.projectedTokens))")
-                            .font(.system(size: 10, design: .monospaced))
-                        Spacer()
-                        Text("Cost: \(CostCalculator.formatCost(session.projectedCost))")
-                            .font(.system(size: 10, design: .monospaced))
-                    }
-                }
-            }
-
-            // MODELS block
-            HStack(spacing: 4) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-                Text("Models:")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                Text(session.activeModels.isEmpty ? "none" : session.activeModels.joined(separator: ", "))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.primary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            .cornerRadius(6)
-
-            // Refresh indicator
+            // Footer refresh indicator
             HStack {
                 Spacer()
                 Text("Refreshing every 0.5s")
                     .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(Color.secondary.opacity(0.6))
+                    .foregroundColor(Color.secondary.opacity(0.5))
                 Circle()
                     .fill(engine.state.isActive ? Color.green : Color.gray)
                     .frame(width: 5, height: 5)
@@ -186,33 +152,89 @@ struct UsagePopoverView: View {
         }
     }
 
-    // MARK: - Live Session Helpers
-
-    private func liveBlock<Content: View>(
-        icon: String,
-        iconColor: Color,
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    /// A compact card for a single live session.
+    private func liveSessionCard(_ session: SessionInfo) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Header: project name + active badge + time
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9))
-                    .foregroundColor(iconColor)
-                Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                Circle()
+                    .fill(session.isActive ? Color.green : Color.gray)
+                    .frame(width: 6, height: 6)
+                Text(session.displayName)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .lineLimit(1)
+                if session.isActive {
+                    liveStatusBadge("LIVE", color: .green)
+                }
+                Spacer()
+                Text(formatTime(session.sessionStart))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
             }
-            content()
+
+            // Progress bar: tokens vs projected
+            let progress = session.projectedTokens > 0
+                ? min(Double(session.totalTokens) / Double(session.projectedTokens), 1.0)
+                : 0.0
+            liveProgressBar(value: progress, color: session.isActive ? .green : .gray)
+
+            // Stats row 1: tokens + cost
+            HStack {
+                Text("Tokens: \(formatTokenCount(session.totalTokens))")
+                    .font(.system(size: 9, design: .monospaced))
+                Spacer()
+                Text("Burn: \(formatBurnRate(session.burnRatePerMinute)) tok/min")
+                    .font(.system(size: 9, design: .monospaced))
+                liveStatusBadge(session.burnStatus.rawValue, color: burnStatusColor(session.burnStatus))
+            }
+
+            // Stats row 2: cost + projection + models
+            HStack {
+                Text("Cost: \(CostCalculator.formatCost(session.estimatedCost))")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("Proj: \(formatTokenCount(session.projectedTokens)) / \(CostCalculator.formatCost(session.projectedCost))")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+                liveStatusBadge(session.projectionStatus.rawValue, color: projectionStatusColor(session.projectionStatus))
+            }
+
+            // Models row
+            HStack(spacing: 3) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary)
+                Text(session.activeModels.isEmpty ? "—" : session.activeModels.joined(separator: ", "))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(session.isActive ? 0.6 : 0.3))
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
+                .stroke(session.isActive ? Color.green.opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 0.5)
         )
     }
+
+    /// A small stat chip for the summary header.
+    private func liveStatChip(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: 1) {
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(color)
+            Text(label)
+                .font(.system(size: 8))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Live Session Helpers
 
     private func liveProgressBar(value: Double, color: Color) -> some View {
         GeometryReader { geo in
@@ -464,6 +486,232 @@ struct UsagePopoverView: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+
+    // MARK: - Profile Tab
+
+    private var profileTab: some View {
+        let profile = engine.state.claudeProfile
+
+        return ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 10) {
+                // Account section
+                profileAccountSection(profile)
+
+                Divider()
+
+                // Tool usage section
+                profileToolUsageSection(profile)
+
+                Divider()
+
+                // Plugins section
+                profilePluginsSection(profile)
+            }
+        }
+    }
+
+    private func profileAccountSection(_ profile: ClaudeProfile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.accentColor)
+                Text("Account")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+
+            if let account = profile.account {
+                VStack(alignment: .leading, spacing: 4) {
+                    profileRow(label: "Name", value: account.displayName)
+                    profileRow(label: "Email", value: account.emailAddress)
+                    profileRow(label: "Org", value: account.organizationName)
+                    profileRow(label: "Role", value: account.organizationRole)
+                    HStack(spacing: 6) {
+                        profileRow(label: "Plan", value: account.billingLabel)
+                        if account.hasExtraUsageEnabled {
+                            Text("+ Extended")
+                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.green)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.green.opacity(0.12))
+                                .cornerRadius(3)
+                        }
+                    }
+                }
+
+                if let days = profile.daysSinceFirstUse {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Text("Using Claude Code for \(days) days")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+            } else {
+                Text("No account info found")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.7))
+                Text("Expected at ~/.claude.json")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+        }
+    }
+
+    private func profileToolUsageSection(_ profile: ClaudeProfile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "hammer.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.orange)
+                Text("Tool Usage")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if profile.totalToolInvocations > 0 {
+                    Text("\(formatToolCount(profile.totalToolInvocations)) total")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if profile.toolUsage.isEmpty {
+                Text("No tool usage data")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.7))
+            } else {
+                // Show top tools as horizontal bar chart
+                let topTools = Array(profile.toolUsage.prefix(8))
+                let maxCount = topTools.first?.usageCount ?? 1
+
+                ForEach(topTools) { tool in
+                    HStack(spacing: 6) {
+                        Text(tool.toolName)
+                            .font(.system(size: 10, design: .monospaced))
+                            .frame(width: 70, alignment: .trailing)
+
+                        GeometryReader { geo in
+                            let barWidth = max(
+                                geo.size.width * CGFloat(tool.usageCount) / CGFloat(maxCount),
+                                2
+                            )
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(toolColor(tool.toolName))
+                                .frame(width: barWidth, height: 12)
+                        }
+                        .frame(height: 12)
+
+                        Text("\(tool.usageCount)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .frame(width: 35, alignment: .trailing)
+                    }
+                }
+            }
+        }
+    }
+
+    private func profilePluginsSection(_ profile: ClaudeProfile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "puzzlepiece.extension.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.purple)
+                Text("Plugins")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(profile.installedPlugins.count)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
+            if profile.installedPlugins.isEmpty {
+                Text("No plugins installed")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.7))
+                Text("Install plugins via claude plugins add")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.5))
+            } else {
+                ForEach(profile.installedPlugins) { plugin in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(plugin.enabled ? Color.green : Color.gray)
+                            .frame(width: 5, height: 5)
+                        Text(plugin.name)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                        if let version = plugin.version {
+                            Text("v\(version)")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if !plugin.enabled {
+                            Text("OFF")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(.gray)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(Color.gray.opacity(0.15))
+                                .cornerRadius(2)
+                        }
+                    }
+
+                    if let desc = plugin.description {
+                        Text(desc)
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .lineLimit(2)
+                            .padding(.leading, 11)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Profile Helpers
+
+    private func profileRow(label: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .frame(width: 40, alignment: .trailing)
+            Text(value.isEmpty ? "—" : value)
+                .font(.system(size: 10, design: .monospaced))
+                .lineLimit(1)
+        }
+    }
+
+    private func toolColor(_ name: String) -> Color {
+        switch name {
+        case "Read":   return .blue
+        case "Write":  return .green
+        case "Edit":   return .orange
+        case "Bash":   return .red
+        case "Glob":   return .cyan
+        case "Grep":   return .teal
+        case "Agent":  return .purple
+        default:       return .accentColor.opacity(0.7)
+        }
+    }
+
+    private func formatToolCount(_ count: Int) -> String {
+        if count >= 1_000 {
+            return String(format: "%.1fK", Double(count) / 1_000)
+        }
+        return "\(count)"
     }
 
     // MARK: - Footer

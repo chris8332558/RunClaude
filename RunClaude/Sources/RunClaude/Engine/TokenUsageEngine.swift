@@ -15,6 +15,7 @@ final class TokenUsageEngine: ObservableObject {
     private let watcher: LogFileWatcher
     private let aggregator: TokenAggregator
     private let costAlertManager = CostAlertManager()
+    private let configReader = ClaudeConfigReader()
 
     /// Timer to periodically recalculate velocity (even when no new data arrives,
     /// the sliding window needs to decay old samples).
@@ -68,6 +69,7 @@ final class TokenUsageEngine: ObservableObject {
 
     private func updateState() {
         state = aggregator.buildState()
+        state.claudeProfile = configReader.readProfile()
 
         // Recalculate today's cost
         var today = aggregator.today

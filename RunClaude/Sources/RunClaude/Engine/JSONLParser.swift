@@ -30,7 +30,7 @@ import Foundation
 struct JSONLParser {
 
     /// Parse a single JSONL line into a TokenRecord, if it contains usage data.
-    static func parseLine(_ line: String) -> TokenRecord? {
+    static func parseLine(_ line: String, sourceFile: String = "") -> TokenRecord? {
         guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
@@ -41,17 +41,17 @@ struct JSONLParser {
             return nil
         }
 
-        return extractTokenRecord(from: json, rawLine: line)
+        return extractTokenRecord(from: json, rawLine: line, sourceFile: sourceFile)
     }
 
     /// Parse multiple JSONL lines (e.g., from reading a file chunk).
-    static func parseLines(_ text: String) -> [TokenRecord] {
-        text.components(separatedBy: .newlines).compactMap { parseLine($0) }
+    static func parseLines(_ text: String, sourceFile: String = "") -> [TokenRecord] {
+        text.components(separatedBy: .newlines).compactMap { parseLine($0, sourceFile: sourceFile) }
     }
 
     /// Read and parse new lines from a file starting at the given byte offset.
     /// Returns the parsed records and the new byte offset.
-    static func parseNewLines(in fileURL: URL, fromOffset offset: UInt64) -> (records: [TokenRecord], newOffset: UInt64) {
+    static func parseNewLines(in fileURL: URL, fromOffset offset: UInt64, sourceFile: String = "") -> (records: [TokenRecord], newOffset: UInt64) {
         guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
             return ([], offset)
         }
@@ -79,13 +79,13 @@ struct JSONLParser {
             return ([], newOffset)
         }
 
-        let records = parseLines(text)
+        let records = parseLines(text, sourceFile: sourceFile)
         return (records, newOffset)
     }
 
     // MARK: - Private
 
-    private static func extractTokenRecord(from json: [String: Any], rawLine: String) -> TokenRecord? {
+    private static func extractTokenRecord(from json: [String: Any], rawLine: String, sourceFile: String) -> TokenRecord? {
         // Only process "assistant" type lines — these are the ones with token usage.
         // Skip "user", "system", "progress", "file-history-snapshot", "last-prompt" etc.
         if let type = json["type"] as? String, type != "assistant" {
@@ -99,7 +99,8 @@ struct JSONLParser {
                 from: usage,
                 model: message["model"] as? String ?? json["model"] as? String ?? "unknown",
                 timestamp: extractTimestamp(from: json),
-                deduplicationKey: buildDeduplicationKey(from: json, message: message, rawLine: rawLine)
+                deduplicationKey: buildDeduplicationKey(from: json, message: message, rawLine: rawLine),
+                sourceFile: sourceFile
             )
         }
 
@@ -109,7 +110,8 @@ struct JSONLParser {
                 from: usage,
                 model: json["model"] as? String ?? "unknown",
                 timestamp: extractTimestamp(from: json),
-                deduplicationKey: buildDeduplicationKey(from: json, message: nil, rawLine: rawLine)
+                deduplicationKey: buildDeduplicationKey(from: json, message: nil, rawLine: rawLine),
+                sourceFile: sourceFile
             )
         }
 
@@ -120,7 +122,8 @@ struct JSONLParser {
                 from: usage,
                 model: result["model"] as? String ?? json["model"] as? String ?? "unknown",
                 timestamp: extractTimestamp(from: json),
-                deduplicationKey: buildDeduplicationKey(from: json, message: nil, rawLine: rawLine)
+                deduplicationKey: buildDeduplicationKey(from: json, message: nil, rawLine: rawLine),
+                sourceFile: sourceFile
             )
         }
 
@@ -131,7 +134,8 @@ struct JSONLParser {
         from usage: [String: Any],
         model: String,
         timestamp: Date,
-        deduplicationKey: String
+        deduplicationKey: String,
+        sourceFile: String
     ) -> TokenRecord {
         TokenRecord(
             timestamp: timestamp,
@@ -140,7 +144,8 @@ struct JSONLParser {
             outputTokens: usage["output_tokens"] as? Int ?? 0,
             cacheCreationTokens: usage["cache_creation_input_tokens"] as? Int ?? 0,
             cacheReadTokens: usage["cache_read_input_tokens"] as? Int ?? 0,
-            deduplicationKey: deduplicationKey
+            deduplicationKey: deduplicationKey,
+            sourceFile: sourceFile
         )
     }
 

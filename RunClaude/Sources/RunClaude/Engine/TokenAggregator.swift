@@ -25,11 +25,24 @@ final class TokenAggregator {
     /// Populated from all ingested records, used for weekly/monthly charts.
     private var historicalDays: [Date: DailyUsage] = [:]
 
-    /// Timestamp of the first token record seen today (session start proxy).
-    private var sessionStartTime: Date?
+    /// Per-file (per-session) tracking. Key is the JSONL file path.
+    private var fileSessions: [String: FileSession] = [:]
 
     /// Assumed session duration for projection (8 hours).
     private let sessionDurationHours: Double = 8.0
+
+    /// How long after last activity before a session is considered inactive.
+    private let sessionInactiveTimeout: TimeInterval = 30.0
+
+    /// Internal per-file session accumulator.
+    struct FileSession {
+        var sourceFile: String
+        var firstRecord: Date
+        var lastRecord: Date
+        var totalTokens: Int = 0
+        var models: Set<String> = []
+        var modelBreakdown: [String: ModelUsage] = [:]
+    }
 
     // MARK: - Init
 
@@ -49,7 +62,7 @@ final class TokenAggregator {
         // Reset daily usage if we've crossed midnight
         if dailyUsage.date != todayStart {
             dailyUsage = DailyUsage(date: todayStart)
-            sessionStartTime = nil
+            fileSessions.removeAll()
         }
 
         for record in records {
@@ -59,11 +72,31 @@ final class TokenAggregator {
             // Add to sliding window
             recentSamples.append(TokenSample(timestamp: record.timestamp, tokens: tokens))
 
-            // Track session start (first today record)
-            if recordDayStart == todayStart {
-                if sessionStartTime == nil || record.timestamp < sessionStartTime! {
-                    sessionStartTime = record.timestamp
+            // Track per-file session data
+            if !record.sourceFile.isEmpty {
+                var session = fileSessions[record.sourceFile] ?? FileSession(
+                    sourceFile: record.sourceFile,
+                    firstRecord: record.timestamp,
+                    lastRecord: record.timestamp
+                )
+                if record.timestamp < session.firstRecord {
+                    session.firstRecord = record.timestamp
                 }
+                if record.timestamp > session.lastRecord {
+                    session.lastRecord = record.timestamp
+                }
+                session.totalTokens += tokens
+                session.models.insert(record.model)
+
+                var mu = session.modelBreakdown[record.model] ?? ModelUsage(model: record.model)
+                mu.inputTokens += record.inputTokens
+                mu.outputTokens += record.outputTokens
+                mu.cacheCreationTokens += record.cacheCreationTokens
+                mu.cacheReadTokens += record.cacheReadTokens
+                mu.totalTokens += tokens
+                session.modelBreakdown[record.model] = mu
+
+                fileSessions[record.sourceFile] = session
             }
 
             // Add to daily aggregation (only count today's records)
@@ -167,60 +200,91 @@ final class TokenAggregator {
         buildHistory(days: 30)
     }
 
-    /// Build live session info for the monitor panel.
-    func buildSessionInfo() -> SessionInfo {
+    /// Build live session info for all tracked JSONL files.
+    /// Returns sessions sorted: active first (by recency), then inactive (by recency).
+    func buildLiveSessions() -> [SessionInfo] {
         let now = Date()
-        let todayData = today
-
-        guard let start = sessionStartTime, todayData.totalTokens > 0 else {
-            return SessionInfo()
-        }
-
-        let elapsed = now.timeIntervalSince(start)
-        let elapsedMinutes = max(elapsed / 60.0, 0.1) // avoid division by zero
-        let burnRate = Double(todayData.totalTokens) / elapsedMinutes
-
-        // Burn status based on tokens/min
-        let burnStatus: SessionInfo.BurnStatus
-        switch burnRate {
-        case ..<10:     burnStatus = .idle
-        case ..<500:    burnStatus = .low
-        case ..<5000:   burnStatus = .normal
-        case ..<20000:  burnStatus = .high
-        default:        burnStatus = .extreme
-        }
-
-        // Project total tokens over full session duration
         let sessionMinutes = sessionDurationHours * 60.0
-        let projectedTokens = Int(burnRate * sessionMinutes)
 
-        // Project cost: scale today's cost by (sessionMinutes / elapsedMinutes)
-        let todayCost = todayData.estimatedCost
-        let projectedCost = todayCost * (sessionMinutes / elapsedMinutes)
+        return fileSessions.values
+            .filter { $0.totalTokens > 0 }
+            .map { session -> SessionInfo in
+                let elapsed = now.timeIntervalSince(session.firstRecord)
+                let elapsedMinutes = max(elapsed / 60.0, 0.1)
+                let burnRate = Double(session.totalTokens) / elapsedMinutes
+                let active = now.timeIntervalSince(session.lastRecord) < sessionInactiveTimeout
 
-        // Projection status based on projected daily cost
-        let projectionStatus: SessionInfo.ProjectionStatus
-        switch projectedCost {
-        case ..<10:   projectionStatus = .onTrack
-        case ..<50:   projectionStatus = .elevated
-        default:      projectionStatus = .high
+                // Burn status
+                let burnStatus: SessionInfo.BurnStatus
+                switch burnRate {
+                case ..<10:     burnStatus = .idle
+                case ..<500:    burnStatus = .low
+                case ..<5000:   burnStatus = .normal
+                case ..<20000:  burnStatus = .high
+                default:        burnStatus = .extreme
+                }
+
+                // Cost for this session
+                let sessionCost = session.modelBreakdown.values.reduce(0.0) {
+                    $0 + CostCalculator.cost(for: $1)
+                }
+
+                // Projection
+                let projectedTokens = Int(burnRate * sessionMinutes)
+                let projectedCost = elapsedMinutes > 0.1
+                    ? sessionCost * (sessionMinutes / elapsedMinutes) : 0
+
+                let projectionStatus: SessionInfo.ProjectionStatus
+                switch projectedCost {
+                case ..<10:   projectionStatus = .onTrack
+                case ..<50:   projectionStatus = .elevated
+                default:      projectionStatus = .high
+                }
+
+                let models = session.models.sorted().map { shortModelName($0) }
+
+                return SessionInfo(
+                    sourceFile: session.sourceFile,
+                    displayName: Self.displayName(for: session.sourceFile),
+                    isActive: active,
+                    sessionStart: session.firstRecord,
+                    lastActivity: session.lastRecord,
+                    elapsedSeconds: elapsed,
+                    totalTokens: session.totalTokens,
+                    estimatedCost: sessionCost,
+                    burnRatePerMinute: burnRate,
+                    burnStatus: burnStatus,
+                    projectedTokens: projectedTokens,
+                    projectedCost: projectedCost,
+                    projectionStatus: projectionStatus,
+                    activeModels: models
+                )
+            }
+            .sorted { lhs, rhs in
+                // Active sessions first, then by most recent activity
+                if lhs.isActive != rhs.isActive { return lhs.isActive }
+                return (lhs.lastActivity ?? .distantPast) > (rhs.lastActivity ?? .distantPast)
+            }
+    }
+
+    /// Derive a short display name from a JSONL file path.
+    /// e.g. "~/.claude/projects/-Users-chris-myproject/abc.jsonl" → "myproject"
+    private static func displayName(for path: String) -> String {
+        // The parent directory is a hash of the project path, often like:
+        // -Users-chris-Code-myproject  →  extract last component
+        let url = URL(fileURLWithPath: path)
+        let dirName = url.deletingLastPathComponent().lastPathComponent
+        // Split on hyphens, take the last meaningful segment(s)
+        let parts = dirName.split(separator: "-").map(String.init)
+        if parts.count >= 2 {
+            // Skip leading empty segments from paths like "-Users-..."
+            let meaningful = parts.filter { !$0.isEmpty && $0.lowercased() != "users" }
+            if let last = meaningful.last {
+                return last
+            }
         }
-
-        // Active models
-        let models = todayData.modelBreakdown.keys
-            .sorted()
-            .map { shortModelName($0) }
-
-        return SessionInfo(
-            sessionStart: start,
-            elapsedSeconds: elapsed,
-            burnRatePerMinute: burnRate,
-            burnStatus: burnStatus,
-            projectedTokens: projectedTokens,
-            projectedCost: projectedCost,
-            projectionStatus: projectionStatus,
-            activeModels: models
-        )
+        // Fallback: use the JSONL filename without extension
+        return url.deletingPathExtension().lastPathComponent
     }
 
     /// Short model name for session display.
@@ -241,7 +305,7 @@ final class TokenAggregator {
             todayUsage: today,
             recentSamples: Array(recentSamples.suffix(100)),
             sparklineBuckets: sparklineData.map { SparklineBucket(date: $0.date, tokens: $0.tokens) },
-            sessionInfo: buildSessionInfo(),
+            liveSessions: buildLiveSessions(),
             isActive: isActive,
             weeklyHistory: weeklyHistory,
             monthlyHistory: monthlyHistory

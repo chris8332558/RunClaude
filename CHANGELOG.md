@@ -1,5 +1,56 @@
 # RunClaude Changelog
 
+## [2026-03-28] — Profile tab: account info, tool usage, plugins
+
+### Added
+- `Engine/ClaudeConfigReader.swift`: New file. Reads `~/.claude.json` for account info (oauthAccount), tool usage stats (toolUsage), and `firstStartTime`. Scans `~/.claude/plugins/` for installed plugins, parsing manifest files (package.json, plugin.json, etc.) for name, version, description, and enabled state. Results are cached for 30 seconds to avoid excessive disk I/O on each 0.5s tick.
+- `Engine/Models.swift`: `ClaudeAccount` struct — display name, email, org, role, billing type, extra usage flag, with a computed `billingLabel` (stripe_subscription → "Pro", etc.)
+- `Engine/Models.swift`: `ToolUsageStat` struct — per-tool invocation count and last-used date, `Identifiable` by tool name
+- `Engine/Models.swift`: `PluginInfo` struct — plugin name, version, description, enabled state, and file path
+- `Engine/Models.swift`: `ClaudeProfile` struct — aggregates account, tool usage, plugins, and firstStartTime with computed helpers `daysSinceFirstUse` and `totalToolInvocations`
+- `Views/UsagePopoverView.swift`: New "Profile" tab with three sections: Account (name, email, org, role, plan type with "Extended" badge), Tool Usage (horizontal bar chart of top 8 tools color-coded by type), Plugins (list with enabled/disabled status, version, description)
+
+### Changed
+- `Engine/Models.swift`: `UsageState` gained `claudeProfile: ClaudeProfile` field
+- `Engine/TokenUsageEngine.swift`: Instantiates `ClaudeConfigReader` and populates `state.claudeProfile` on every state update
+- `Views/UsagePopoverView.swift`: Tab picker expanded from 4 to 5 tabs — Live | Today | 7 Days | 30 Days | Profile
+
+### Decisions
+- **30-second cache on config reads** — `~/.claude.json` and the plugins directory rarely change during a session. Caching avoids reading and parsing JSON on every 0.5s velocity tick while still picking up changes within half a minute.
+- **Separate ClaudeConfigReader rather than extending LogFileWatcher** — Config files are static metadata (account, preferences) with a completely different access pattern from the streaming JSONL logs. Keeping them in a dedicated reader maintains single-responsibility and allows independent cache tuning.
+- **Profile as a 5th tab rather than inline sections** — Account/plugin info is not time-series data and doesn't fit naturally into the Live/Today/7 Days/30 Days time-based paradigm. A dedicated tab keeps the existing tabs focused on usage metrics.
+
+## [2026-03-27] — Per-file live sessions, custom sprite pack
+
+### Added
+- `Models.swift`: `sourceFile: String` field on `TokenRecord` — each parsed record now carries the JSONL file path it was read from
+- `Models.swift`: `SessionInfo` made `Identifiable`; new fields `sourceFile`, `displayName`, `isActive`, `lastActivity`, `totalTokens`, `estimatedCost` to represent a single Claude Code session (one JSONL file)
+- `TokenAggregator.swift`: `FileSession` internal struct and `fileSessions: [String: FileSession]` dictionary to accumulate per-file token data
+- `TokenAggregator.swift`: `buildLiveSessions()` — replaces `buildSessionInfo()`; returns one `SessionInfo` per JSONL file, sorted active (recent activity < 30 s) first
+- `TokenAggregator.swift`: `displayName(for:)` — derives a short project label from the Claude log directory name (e.g. `-Users-chris-myproject` → `myproject`)
+- `UsagePopoverView.swift`: Summary header chips (active count, total tokens, total cost) above the session list
+- `UsagePopoverView.swift`: `liveSessionCard(_:)` — compact per-session card with status dot, project name, LIVE badge, progress bar, burn rate, cost, projection, and models
+- `UsagePopoverView.swift`: `liveStatChip(value:label:color:)` helper for the summary header
+- `RunClaude/Sources/RunClaude/custom/`: New sprite directory replacing `witch_run/`; drop-in location for custom PNG frames
+
+### Changed
+- `JSONLParser.swift`: `parseLine`, `parseLines`, `parseNewLines`, and `extractTokenRecord` all accept an optional `sourceFile: String` parameter and thread it into the returned `TokenRecord`
+- `LogFileWatcher.swift`: Passes the file path as `sourceFile` when calling `JSONLParser.parseNewLines`
+- `Models.swift`: `sessionInfo: SessionInfo` in `UsageState` replaced by `liveSessions: [SessionInfo]`
+- `UsagePopoverView.swift`: Live Session tab rebuilt as a scrollable list of `liveSessionCard` rows; removed the old SESSION / USAGE / PROJECTION block layout
+- `SpriteGenerator.swift`: `WitchPack` renamed to `CustomPack` (id `custom`); loads frames from `custom/` subdirectory
+- `SpriteGenerator.swift`: PixelRobot arms now explicitly carry `sway` offset so they track the body's left/right movement instead of floating in place
+- `Package.swift`: Resource copy path updated from `witch_run` to `custom`
+
+### Removed
+- `witch_run/B_witch_1…6.png`: Deleted bundled witch sprite PNGs; replaced by the user-configurable `custom/` directory
+
+### Decisions
+- **Per-file sessions instead of a single daily session**: Claude Code writes one JSONL file per project/conversation, so mapping sessions 1-to-1 to files gives accurate multi-project visibility without heuristics. The old single-session approach merged all projects into one view, making burn rate meaningless when running multiple workspaces simultaneously.
+- **30-second inactivity threshold for "active"**: Matches the polling cadence and gives a responsive but not jittery active/inactive signal. Sessions stay "active" long enough to survive a brief tool-call gap.
+- **`custom/` sprite directory**: Replaces the hardcoded `witch_run/` pack with a generic user-replaceable drop zone. Users can supply their own PNG frames without code changes; pack id and display name become `custom`/`Custom` to reflect this.
+
+
 ## [2026-03-27] — Live session monitor, sparkline fix, speed tuning
 
 ### Added

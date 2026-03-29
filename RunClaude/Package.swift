@@ -13,7 +13,7 @@ let package = Package(
             path: "Sources/RunClaude",
             resources: [
                 .copy("../../Resources/Info.plist"),
-                .copy("witch_run")
+                .copy("custom")
             ]
         )
     ]

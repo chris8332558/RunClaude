@@ -27,7 +27,7 @@ struct SpritePackRegistry {
         PixelRobotPack(),
         NyanBarPack(),
         GhostPack(),
-        WitchPack()
+        CustomPack()
     ]
 
     static let defaultPackId = "claude-bean"
@@ -298,13 +298,16 @@ struct PixelRobotPack: SpritePack {
             let bodyRect = NSRect(x: cx - bodyW / 2 + sway, y: bodyBottom, width: bodyW, height: bodyH)
             NSBezierPath(rect: bodyRect).fill()
 
-            // Arms — pump up and down in opposite phases
+            // Arms — follow body sway (left/right) and pump up/down
             let armW = 2 * px
             let armH = 2 * px
             let armMidY = bodyRect.minY + (bodyH - armH) / 2
-            let armSwing = CGFloat(sin(phase * .pi * 2)) * 1.2 
-            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armMidY + armSwing,  width: armW, height: armH)).fill()
-            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armMidY + armSwing,  width: armW, height: armH)).fill()
+            let armVSwing = CGFloat(sin(phase * .pi * 2)) * 1.2
+            // Explicitly carry the body's sway so the arms visibly track left/right
+            let leftArmX  = cx - bodyW / 2 + sway - armW
+            let rightArmX = cx + bodyW / 2 + sway
+            NSBezierPath(rect: NSRect(x: leftArmX,  y: armMidY + armVSwing, width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: rightArmX, y: armMidY + armVSwing, width: armW, height: armH)).fill()
 
             // Legs — 4 legs, alternating pairs lift off the ground
             let legW = px
@@ -543,9 +546,9 @@ struct GhostPack: SpritePack {
 
 /// A witch-on-broomstick character loaded from PNG sprite sheet frames.
 /// Source images: B_witch_1…6.png (111×48 px RGBA), scaled to fit the menu bar.
-struct WitchPack: SpritePack {
-    let id = "witch"
-    let displayName = "Witch"
+struct CustomPack: SpritePack {
+    let id = "custom"
+    let displayName = "Custom"
     // Maintain 111:48 aspect ratio at 18 pt height → ~42×18 pt
     let frameSize = NSSize(width: 20, height: 30)
 
@@ -559,7 +562,7 @@ struct WitchPack: SpritePack {
     }
 
     private func loadFrame(_ name: String) -> NSImage? {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "witch_run"),
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "custom"),
               let source = NSImage(contentsOf: url) else { return nil }
         let scaled = NSImage(size: frameSize, flipped: false) { rect in
             source.draw(in: rect)
