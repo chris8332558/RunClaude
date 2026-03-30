@@ -1,5 +1,27 @@
 # RunClaude Changelog
 
+## [2026-03-30] — Cost bug fixes, CPU optimisations, profile stat redesign
+
+### Added
+- `TokenAggregator.swift`: Three reusable `DateFormatter` instance properties (`weekdayFormatter`, `shortDateFormatter`, `dayNumberFormatter`) — replaces two per-call allocations inside `buildHistory()` and `buildCurrentMonth()` that fired 2×/sec
+- `TokenAggregator.swift`: `cachedLifetimeTotalTokens` — running counter incremented in `ingest()` so `lifetimeTotalTokens` is O(1) instead of iterating all historical days on every `buildState()` call
+- `TokenAggregator.swift`: `cachedSparklineData` + `sparklineDirty` flag — sparkline sort is only rebuilt when buckets actually change, not on every 0.5s tick
+
+### Changed
+- `TokenAggregator.swift`: `today` getter now populates `DailyUsage.estimatedCost` and per-model `ModelUsage.estimatedCost` via `computeDayCost()` — previously both were always `0.0`, causing the header cost chip and model breakdown costs to show `$0.00`
+- `TokenUsageEngine.swift`: `updateState()` simplified — removed the redundant second call to `aggregator.today` and duplicate cost loop; `buildState()` already returns a fully-costed `todayUsage`, so the cost alert now reads `state.todayUsage.estimatedCost` directly
+- `Views/UsagePopoverView.swift`: Profile Account section redesigned — days-since-first-use and lifetime token count moved to the top of the section as two prominent rows with large bold monospaced numbers (`size 22, weight .bold`) above the account detail rows
+- `SpriteGenerator.swift`: `ClawdPack` run animation — right arm reverted to same-direction swing (`armBaseY + armSwing`) matching the left arm; both arms pump together
+- `docs/token_cost_counting.md`: Moved from repo root `docs/` to `RunClaude/docs/`
+
+### Fixed
+- **Header cost always `$0.00`** — `DailyUsage.estimatedCost` was never written during ingest; cost is now computed on read in the `today` getter from the model breakdown
+- **Model breakdown cost always `$0.00`** — Same root cause; `ModelUsage.estimatedCost` is now populated alongside `DailyUsage.estimatedCost` in the same pass
+
+### Decisions
+- **Compute cost on read, not on write** — Rather than accumulating `estimatedCost` during `ingest()` (which would require adding cost deltas per-record and keeping two values in sync), cost is derived from the already-correct `modelBreakdown` in the `today` getter. This is called at most 2×/sec and iterates only a handful of model entries, so the overhead is negligible.
+- **Cache with dirty flag over always-recompute** — `sparklineData` sorted 288 entries and `lifetimeTotalTokens` iterated all historical days on every 0.5s tick regardless of whether anything had changed. Caching with an invalidation flag on ingest eliminates the redundant work without adding meaningful complexity.
+
 ## [2026-03-29] — Skills in profile, animation persistence, live session cleanup
 
 ### Added

@@ -604,6 +604,36 @@ struct UsagePopoverView: View {
                     .foregroundColor(.secondary)
             }
 
+            // Prominent stats at the top — two rows
+            if let days = profile.daysSinceFirstUse {
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 13))
+                        .foregroundColor(.accentColor)
+                    Text("\(days)")
+                        .font(.system(size: 22, weight: .bold, design: .monospaced))
+                    Text("days with Claude Code")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            let lifetime = engine.state.lifetimeTotalTokens
+            if lifetime > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.3.layers.3d")
+                        .font(.system(size: 13))
+                        .foregroundColor(.accentColor)
+                    Text(formatTokenCount(lifetime))
+                        .font(.system(size: 22, weight: .bold, design: .monospaced))
+                    Text("tokens with Claude Code")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider()
+
             if let account = profile.account {
                 VStack(alignment: .leading, spacing: 4) {
                     profileRow(label: "Name", value: account.displayName)
@@ -621,30 +651,6 @@ struct UsagePopoverView: View {
                                 .background(Color.green.opacity(0.12))
                                 .cornerRadius(3)
                         }
-                    }
-                }
-
-                if let days = profile.daysSinceFirstUse {
-                    HStack(spacing: 4) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                        Text("Using Claude Code for \(days) days")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 2)
-                }
-
-                let lifetime = engine.state.lifetimeTotalTokens
-                if lifetime > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "sum")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                        Text("\(formatTokenCount(lifetime)) tokens used so far")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.secondary)
                     }
                 }
             } else {
@@ -876,7 +882,7 @@ struct UsagePopoverView: View {
     // MARK: - Helpers
 
     private func tokenStatView(label: String, value: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .center, spacing: 2) {
             Text(label)
                 .font(.caption2)
                 .foregroundColor(.secondary)

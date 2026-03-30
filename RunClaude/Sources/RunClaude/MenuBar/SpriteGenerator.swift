@@ -84,7 +84,7 @@ struct ClawdPack: SpritePack {
             let armBaseY  = bodyRect.minY + (bodyH - armH) / 2
             let armSwing  = CGFloat(sin(phase * .pi * 2)) * 1.2
             NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armBaseY + armSwing, width: armW, height: armH)).fill()
-            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armBaseY - armSwing, width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armBaseY + armSwing, width: armW, height: armH)).fill()
 
             // Legs — 4 legs, alternating pairs lift off the ground
             let legW = px

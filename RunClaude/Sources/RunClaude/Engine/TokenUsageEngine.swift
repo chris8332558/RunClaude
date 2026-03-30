@@ -70,19 +70,7 @@ final class TokenUsageEngine: ObservableObject {
     private func updateState() {
         state = aggregator.buildState()
         state.claudeProfile = configReader.readProfile()
-
-        // Recalculate today's cost
-        var today = aggregator.today
-        var totalCost = 0.0
-        for (model, var modelUsage) in today.modelBreakdown {
-            modelUsage.estimatedCost = CostCalculator.cost(for: modelUsage)
-            today.modelBreakdown[model] = modelUsage
-            totalCost += modelUsage.estimatedCost
-        }
-        today.estimatedCost = totalCost
-        state.todayUsage = today
-
-        // Check cost alert threshold
-        costAlertManager.checkCost(totalCost)
+        // todayUsage already has estimatedCost populated by aggregator.buildState()
+        costAlertManager.checkCost(state.todayUsage.estimatedCost)
     }
 }

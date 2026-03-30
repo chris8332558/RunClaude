@@ -25,6 +25,24 @@ final class TokenAggregator {
     /// Populated from all ingested records, used for weekly/monthly charts.
     private var historicalDays: [Date: DailyUsage] = [:]
 
+    /// Cached lifetime token count — only recomputed when new records arrive.
+    private var cachedLifetimeTotalTokens: Int = 0
+
+    /// Cached sorted sparkline data — only rebuilt when buckets change.
+    private var cachedSparklineData: [(date: Date, tokens: Int)] = []
+    private var sparklineDirty: Bool = false
+
+    /// Reusable date formatters (DateFormatter is expensive to allocate).
+    private let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE"; return f
+    }()
+    private let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "M/d"; return f
+    }()
+    private let dayNumberFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "d"; return f
+    }()
+
     /// Per-file (per-session) tracking. Key is the JSONL file path.
     private var fileSessions: [String: FileSession] = [:]
 
@@ -138,10 +156,12 @@ final class TokenAggregator {
             dayUsage.modelBreakdown[record.model] = modelUsage
 
             historicalDays[recordDayStart] = dayUsage
+            cachedLifetimeTotalTokens += tokens
 
             // Add to 5-minute buckets
             let bucketDate = record.timestamp.rounded(to: bucketInterval)
             minuteBuckets[bucketDate, default: 0] += tokens
+            sparklineDirty = true
         }
 
         // Prune old samples from the sliding window
@@ -180,20 +200,33 @@ final class TokenAggregator {
         return now.timeIntervalSince(lastSample.timestamp) < 30.0
     }
 
-    /// Today's aggregated usage.
+    /// Today's aggregated usage with costs populated.
     var today: DailyUsage {
         let todayStart = Calendar.current.startOfDay(for: Date())
         if dailyUsage.date != todayStart {
             dailyUsage = DailyUsage(date: todayStart)
         }
-        return dailyUsage
+        var result = dailyUsage
+        // estimatedCost is not summed during ingest (to avoid keeping two sources of truth
+        // in sync). Compute it on read from the model breakdown instead.
+        result.estimatedCost = computeDayCost(result)
+        for (model, mu) in result.modelBreakdown {
+            var updated = mu
+            updated.estimatedCost = CostCalculator.cost(for: mu)
+            result.modelBreakdown[model] = updated
+        }
+        return result
     }
 
     /// Recent 5-minute token buckets for sparkline rendering.
     var sparklineData: [(date: Date, tokens: Int)] {
-        minuteBuckets
-            .sorted { $0.key < $1.key }
-            .map { (date: $0.key, tokens: $0.value) }
+        if sparklineDirty {
+            cachedSparklineData = minuteBuckets
+                .sorted { $0.key < $1.key }
+                .map { (date: $0.key, tokens: $0.value) }
+            sparklineDirty = false
+        }
+        return cachedSparklineData
     }
 
     /// Last 7 days of usage as chart data points.
@@ -207,9 +240,7 @@ final class TokenAggregator {
     }
 
     /// Lifetime total tokens across all tracked days.
-    var lifetimeTotalTokens: Int {
-        historicalDays.values.reduce(0) { $0 + $1.totalTokens }
-    }
+    var lifetimeTotalTokens: Int { cachedLifetimeTotalTokens }
 
     /// Build live session info for all tracked JSONL files.
     /// Returns sessions sorted: active first (by recency), then inactive (by recency).
@@ -334,8 +365,7 @@ final class TokenAggregator {
     private func buildHistory(days: Int) -> [HistoryDataPoint] {
         let calendar = Calendar.current
         let now = Date()
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = days <= 7 ? "EEE" : "M/d"
+        let dayFormatter = days <= 7 ? weekdayFormatter : shortDateFormatter
 
         return (0..<days).reversed().map { daysAgo in
             let date = calendar.date(byAdding: .day, value: -daysAgo, to: now)!
@@ -359,8 +389,7 @@ final class TokenAggregator {
         guard let monthStart = calendar.date(from: components) else { return [] }
 
         let todayStart = calendar.startOfDay(for: now)
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = "d"  // Just the day number: "1", "15", "29"
+        let dayFormatter = dayNumberFormatter
 
         var points: [HistoryDataPoint] = []
         var current = monthStart
