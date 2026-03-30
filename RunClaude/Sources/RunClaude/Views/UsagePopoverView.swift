@@ -13,7 +13,7 @@ struct UsagePopoverView: View {
         case live = "Live"
         case today = "Today"
         case week = "7 Days"
-        case month = "30 Days"
+        case month = "Month"
         case profile = "Profile"
     }
 
@@ -41,7 +41,7 @@ struct UsagePopoverView: View {
             case .week:
                 historyTab(data: engine.state.weeklyHistory, title: "Last 7 Days")
             case .month:
-                historyTab(data: engine.state.monthlyHistory, title: "Last 30 Days")
+                historyTab(data: engine.state.monthlyHistory, title: "Last 30 Days", isMonthly: true)
             case .profile:
                 profileTab
             }
@@ -375,33 +375,85 @@ struct UsagePopoverView: View {
     @ViewBuilder
     private var sparklineSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Activity (last 6h)")
+            Text("Activity (today)")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            let data = engine.state.sparklineBuckets
-            if data.isEmpty {
+            let rawData = engine.state.sparklineBuckets
+            let calendar = Calendar.current
+            let todayStart = calendar.startOfDay(for: Date())
+            let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+
+            // Aggregate 5-min buckets into 30-min buckets (48 bars for 24h)
+            let halfHourBuckets = aggregateToHalfHour(rawData, dayStart: todayStart)
+
+            if halfHourBuckets.isEmpty {
                 emptyChartPlaceholder(text: "No recent activity")
             } else {
+                // Build the 5 axis mark dates: 0h, 6h, 12h, 18h, 23h
+                let axisHours = [0, 6, 12, 18]
+                let axisDates = axisHours.map { calendar.date(byAdding: .hour, value: $0, to: todayStart)! }
+
                 Chart {
-                    ForEach(Array(data.enumerated()), id: \.offset) { index, bucket in
+                    ForEach(halfHourBuckets, id: \.date) { bucket in
                         BarMark(
-                            x: .value("Time", index),
+                            x: .value("Time", bucket.date),
                             y: .value("Tokens", bucket.tokens)
                         )
                         .foregroundStyle(Color.accentColor.opacity(0.7))
                     }
                 }
-                .chartXAxis(.hidden)
-                .chartYAxis(.hidden)
-                .frame(height: 40)
+                .chartXScale(domain: todayStart...todayEnd)
+                .chartXAxis {
+                    AxisMarks(values: axisDates) { value in
+                        AxisValueLabel {
+                            if let date = value.as(Date.self) {
+                                // Hours since midnight (handles 24 correctly)
+                                let hours = Int(date.timeIntervalSince(todayStart) / 3600)
+                                Text("\(hours)")
+                                    .font(.system(size: 8))
+                            }
+                        }
+                        AxisGridLine()
+                            .foregroundStyle(Color.gray.opacity(0.2))
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisValueLabel {
+                            if let v = value.as(Int.self) {
+                                Text(formatTokenCount(v))
+                                    .font(.system(size: 7))
+                            }
+                        }
+                    }
+                }
+                .frame(height: 50)
             }
         }
     }
 
+    /// Aggregate 5-minute sparkline buckets into 30-minute buckets for a cleaner chart.
+    private func aggregateToHalfHour(_ buckets: [SparklineBucket], dayStart: Date) -> [SparklineBucket] {
+        guard !buckets.isEmpty else { return [] }
+        let halfHour: TimeInterval = 1800
+        var grouped: [Date: Int] = [:]
+
+        for bucket in buckets {
+            let offset = bucket.date.timeIntervalSince(dayStart)
+            let slotOffset = (offset / halfHour).rounded(.down) * halfHour
+            let slotDate = dayStart.addingTimeInterval(slotOffset)
+            grouped[slotDate, default: 0] += bucket.tokens
+        }
+
+        return grouped
+            .map { SparklineBucket(date: $0.key, tokens: $0.value) }
+            .sorted { $0.date < $1.date }
+    }
+
     // MARK: - History Tab (Week / Month)
 
-    private func historyTab(data: [HistoryDataPoint], title: String) -> some View {
+    private func historyTab(data: [HistoryDataPoint], title: String, isMonthly: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             // Summary stats
             let totalTokens = data.reduce(0) { $0 + $1.totalTokens }
@@ -417,6 +469,19 @@ struct UsagePopoverView: View {
 
             Divider()
 
+            // Compute which indices get x-axis labels
+            // For monthly: show ~4 evenly spaced labels; for weekly: show all
+            let labelIndices: Set<Int> = {
+                if !isMonthly || data.count <= 7 {
+                    return Set(0..<data.count)
+                }
+                // 4 labels: first, ~1/3, ~2/3, last
+                let count = data.count
+                return [0, count / 3, 2 * count / 3, count - 1]
+            }()
+
+            let indexed = Array(data.enumerated())
+
             // Token chart
             VStack(alignment: .leading, spacing: 4) {
                 Text("Tokens")
@@ -426,17 +491,26 @@ struct UsagePopoverView: View {
                 if totalTokens == 0 {
                     emptyChartPlaceholder(text: "No usage data for this period")
                 } else {
-                    Chart(data) { point in
+                    Chart(indexed, id: \.offset) { index, point in
                         BarMark(
-                            x: .value("Date", point.label),
-                            y: .value("Tokens", point.totalTokens)
+                            x: .value("Date", "\(index)"),
+                            y: .value("Tokens", point.totalTokens),
                         )
                         .foregroundStyle(Color.accentColor.opacity(0.8))
+                        .cornerRadius(4) // Optional: makes it look modern
                     }
                     .chartXAxis {
-                        AxisMarks(values: .automatic(desiredCount: data.count <= 7 ? data.count : 6)) { value in
-                            AxisValueLabel()
-                                .font(.system(size: 8))
+                        // 1. Convert your labelIndices (Ints) to the same String format used in BarMark
+                        let stringValues = labelIndices.map { "\($0)" }
+                        AxisMarks(values: stringValues) { value in
+                            if let labelString = value.as(String.self),
+                            let idx = Int(labelString),
+                            idx < data.count {
+                                AxisValueLabel {
+                                    Text(data[idx].label)
+                                        .font(.system(size: 8))
+                                }
+                            }
                         }
                     }
                     .chartYAxis {
@@ -461,9 +535,9 @@ struct UsagePopoverView: View {
                 if totalCost == 0 {
                     emptyChartPlaceholder(text: "No cost data")
                 } else {
-                    Chart(data) { point in
+                    Chart(indexed, id: \.offset) { index, point in
                         BarMark(
-                            x: .value("Date", point.label),
+                            x: .value("Date", "\(index)"),
                             y: .value("Cost", point.estimatedCost)
                         )
                         .foregroundStyle(Color.orange.opacity(0.8))
@@ -499,6 +573,11 @@ struct UsagePopoverView: View {
                 profileAccountSection(profile)
 
                 Divider()
+                
+                // Skills section
+                profileSkillsSection(profile)
+
+                Divider()
 
                 // Tool usage section
                 profileToolUsageSection(profile)
@@ -507,6 +586,8 @@ struct UsagePopoverView: View {
 
                 // Plugins section
                 profilePluginsSection(profile)
+
+
             }
         }
     }
@@ -553,6 +634,18 @@ struct UsagePopoverView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(.top, 2)
+                }
+
+                let lifetime = engine.state.lifetimeTotalTokens
+                if lifetime > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sum")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Text("\(formatTokenCount(lifetime)) tokens used so far")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
                 }
             } else {
                 Text("No account info found")
@@ -674,6 +767,55 @@ struct UsagePopoverView: View {
                             .foregroundColor(.secondary.opacity(0.7))
                             .lineLimit(2)
                             .padding(.leading, 11)
+                    }
+                }
+            }
+        }
+    }
+
+    private func profileSkillsSection(_ profile: ClaudeProfile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12))
+                    .foregroundColor(.cyan)
+                Text("Skills")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(profile.installedSkills.count)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
+            if profile.installedSkills.isEmpty {
+                Text("No skills installed")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.7))
+            } else {
+                // Group skills by marketplace
+                let grouped = Dictionary(grouping: profile.installedSkills) { $0.marketplace }
+                let sortedMarketplaces = grouped.keys.sorted()
+
+                ForEach(sortedMarketplaces, id: \.self) { marketplace in
+                    if sortedMarketplaces.count > 1 {
+                        Text(marketplace)
+                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .padding(.top, 2)
+                    }
+
+                    let skills = grouped[marketplace] ?? []
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 4)], alignment: .leading, spacing: 4) {
+                        ForEach(skills) { skill in
+                            Text(skill.name)
+                                .font(.system(size: 9, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.cyan.opacity(0.1))
+                                .cornerRadius(4)
+                        }
                     }
                 }
             }

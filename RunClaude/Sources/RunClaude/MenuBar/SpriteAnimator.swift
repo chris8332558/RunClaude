@@ -34,8 +34,9 @@ final class SpriteAnimator {
     private var timer: Timer?
 
     /// Smoothing factor for interval transitions (0-1, lower = smoother).
-    /// 0.12 gives a ~0.5s ramp time which feels natural without lag.
-    private let smoothing: Double = 0.12
+    /// 0.05 gives a ~2s ramp time — slow enough to coast through brief pauses
+    /// in Claude Code's output without snapping to idle.
+    private let smoothing: Double = 0.05
 
     /// Minimum change in interval before we bother updating the timer,
     /// to avoid unnecessary timer rescheduling on tiny fluctuations.

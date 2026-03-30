@@ -17,7 +17,7 @@ final class TokenAggregator {
     /// Daily usage accumulator (resets at midnight).
     private var dailyUsage: DailyUsage
 
-    /// Per-5-minute buckets for the sparkline chart (last 6 hours = 72 buckets).
+    /// Per-5-minute buckets for the sparkline chart (24h: 12AM–11:59PM = up to 288 buckets).
     private var minuteBuckets: [Date: Int] = [:]
     private let bucketInterval: TimeInterval = 300 // 5 minutes
 
@@ -33,6 +33,10 @@ final class TokenAggregator {
 
     /// How long after last activity before a session is considered inactive.
     private let sessionInactiveTimeout: TimeInterval = 30.0
+
+    /// How long after last activity before a session is hidden from the Live tab entirely.
+    /// Active sessions (< 30s) always show. Inactive sessions linger for 5 minutes then disappear.
+    private let sessionVisibilityTimeout: TimeInterval = 300.0
 
     /// Internal per-file session accumulator.
     struct FileSession {
@@ -143,9 +147,9 @@ final class TokenAggregator {
         // Prune old samples from the sliding window
         pruneWindow(now: now)
 
-        // Prune old minute buckets (keep last 6 hours)
-        let cutoff = now.addingTimeInterval(-6 * 3600)
-        minuteBuckets = minuteBuckets.filter { $0.key >= cutoff }
+        // Prune old minute buckets (keep today only: 12AM–11:59PM)
+        let todayCutoff = Calendar.current.startOfDay(for: now)
+        minuteBuckets = minuteBuckets.filter { $0.key >= todayCutoff }
     }
 
     // MARK: - Queries
@@ -167,11 +171,13 @@ final class TokenAggregator {
         return Double(totalTokens) / effectiveWindow
     }
 
-    /// Whether there's been any token activity in the last few seconds.
+    /// Whether there's been any token activity recently.
+    /// Uses 30s to match the session inactive timeout — keeps the status dot green
+    /// through natural gaps in Claude Code's output (thinking, tool calls, file reads).
     var isActive: Bool {
         let now = Date()
         guard let lastSample = recentSamples.last else { return false }
-        return now.timeIntervalSince(lastSample.timestamp) < 5.0
+        return now.timeIntervalSince(lastSample.timestamp) < 30.0
     }
 
     /// Today's aggregated usage.
@@ -195,9 +201,14 @@ final class TokenAggregator {
         buildHistory(days: 7)
     }
 
-    /// Last 30 days of usage as chart data points.
+    /// Current calendar month usage as chart data points (1st to today).
     var monthlyHistory: [HistoryDataPoint] {
-        buildHistory(days: 30)
+        buildCurrentMonth()
+    }
+
+    /// Lifetime total tokens across all tracked days.
+    var lifetimeTotalTokens: Int {
+        historicalDays.values.reduce(0) { $0 + $1.totalTokens }
     }
 
     /// Build live session info for all tracked JSONL files.
@@ -207,7 +218,7 @@ final class TokenAggregator {
         let sessionMinutes = sessionDurationHours * 60.0
 
         return fileSessions.values
-            .filter { $0.totalTokens > 0 }
+            .filter { $0.totalTokens > 0 && now.timeIntervalSince($0.lastRecord) < sessionVisibilityTimeout }
             .map { session -> SessionInfo in
                 let elapsed = now.timeIntervalSince(session.firstRecord)
                 let elapsedMinutes = max(elapsed / 60.0, 0.1)
@@ -308,7 +319,8 @@ final class TokenAggregator {
             liveSessions: buildLiveSessions(),
             isActive: isActive,
             weeklyHistory: weeklyHistory,
-            monthlyHistory: monthlyHistory
+            monthlyHistory: monthlyHistory,
+            lifetimeTotalTokens: lifetimeTotalTokens
         )
     }
 
@@ -338,6 +350,32 @@ final class TokenAggregator {
                 label: dayFormatter.string(from: dayStart)
             )
         }
+    }
+
+    private func buildCurrentMonth() -> [HistoryDataPoint] {
+        let calendar = Calendar.current
+        let now = Date()
+        let components = calendar.dateComponents([.year, .month], from: now)
+        guard let monthStart = calendar.date(from: components) else { return [] }
+
+        let todayStart = calendar.startOfDay(for: now)
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "d"  // Just the day number: "1", "15", "29"
+
+        var points: [HistoryDataPoint] = []
+        var current = monthStart
+        while current <= todayStart {
+            let usage = historicalDays[current]
+            let cost = computeDayCost(usage)
+            points.append(HistoryDataPoint(
+                date: current,
+                totalTokens: usage?.totalTokens ?? 0,
+                estimatedCost: cost,
+                label: dayFormatter.string(from: current)
+            ))
+            current = calendar.date(byAdding: .day, value: 1, to: current)!
+        }
+        return points
     }
 
     private func computeDayCost(_ usage: DailyUsage?) -> Double {

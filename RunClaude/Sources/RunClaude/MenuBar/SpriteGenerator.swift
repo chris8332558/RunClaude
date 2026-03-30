@@ -22,15 +22,14 @@ protocol SpritePack {
 /// Central registry for all available sprite packs.
 struct SpritePackRegistry {
     static let allPacks: [SpritePack] = [
-        ClaudeBeanPack(),
-        RunningCatPack(),
-        PixelRobotPack(),
-        NyanBarPack(),
-        GhostPack(),
-        CustomPack()
+        ClawdPack(),
+        // RunningCatPack(),
+        // NyanBarPack(),
+        // GhostPack(),
+        // CustomPack()
     ]
 
-    static let defaultPackId = "claude-bean"
+    static let defaultPackId = "clawd"
 
     static func pack(for id: String) -> SpritePack {
         allPacks.first { $0.id == id } ?? allPacks[0]
@@ -45,45 +44,66 @@ struct SpritePackRegistry {
 // MARK: - Pack 1: Claude Bean (default)
 
 /// The Claude-inspired rounded bean/capsule character.
-struct ClaudeBeanPack: SpritePack {
-    let id = "claude-bean"
-    let displayName = "Claude Bean"
-    let frameSize = NSSize(width: 20, height: 18)
+struct ClawdPack: SpritePack {
+    let id = "clawd"
+    let displayName = "Clawd"
+    let frameSize = NSSize(width: 18, height: 18)
 
     func generateRunFrames() -> [NSImage] {
-        (0..<10).map { drawRunFrame(phase: Double($0) / 10.0) }
+        (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }
     }
 
     func generateIdleFrames() -> [NSImage] {
-        (0..<6).map { drawIdleFrame(phase: Double($0) / 6.0) }
+        (0..<4).map { drawIdleFrame(phase: Double($0) / 4.0) }
     }
 
     private func drawRunFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
-            let centerX: CGFloat = size.width / 2
-            let bodyWidth: CGFloat = 10.0
-            let bodyHeight: CGFloat = 9.0
-            let legLength: CGFloat = 3.5
-            let bounce = CGFloat(sin(phase * .pi * 2)) * 1.2
-            let squash: CGFloat = 1.0 - abs(CGFloat(sin(phase * .pi * 2))) * 0.08
-            let tilt = CGFloat(sin(phase * .pi * 2)) * 0.8
+        let size = frameSize  // 18×18
+        let image = NSImage(size: size, flipped: false) { _ in
+            let px: CGFloat = 2.0
+            let cx: CGFloat = size.width / 2
             let groundY: CGFloat = 1.5
-            let bodyBottom = groundY + legLength + bounce
 
-            let legPhase1 = phase
-            let legPhase2 = phase + 0.5
-            let leg1SwingX = CGFloat(sin(legPhase1 * .pi * 2)) * 3.5
-            let leg1LiftY = max(0, CGFloat(sin(legPhase1 * .pi * 2))) * 1.5
-            SpriteDrawing.drawLeg(fromX: centerX - 1.5, fromY: bodyBottom + 1, toX: centerX - 1.5 + leg1SwingX, toY: groundY + leg1LiftY)
-            let leg2SwingX = CGFloat(sin(legPhase2 * .pi * 2)) * 3.5
-            let leg2LiftY = max(0, CGFloat(sin(legPhase2 * .pi * 2))) * 1.5
-            SpriteDrawing.drawLeg(fromX: centerX + 1.5, fromY: bodyBottom + 1, toX: centerX + 1.5 + leg2SwingX, toY: groundY + leg2LiftY)
+            // Body sways left/right; slight vertical bounce on each step
+            let sway   = CGFloat(sin(phase * .pi * 2)) * 0.5
+            let bounce = abs(CGFloat(sin(phase * .pi * 2))) * 1.0
 
-            SpriteDrawing.drawRoundedBody(centerX: centerX + tilt * 0.3, bodyBottom: bodyBottom, bodyHeight: bodyHeight, bodyWidth: bodyWidth, tilt: tilt, squash: squash)
+            NSColor.black.setFill()
 
-            let faceY = bodyBottom + bodyHeight * squash * 0.6
-            SpriteDrawing.drawFace(centerX: centerX + tilt * 0.3, faceY: faceY, bodyWidth: bodyWidth, lookDirection: 1.0)
+            // Body — same 6×5 px proportions as idle, shifted by sway + bounce
+            let bodyW = 6 * px
+            let bodyH = 5 * px
+            let bodyBottom = groundY + 1.5 * px + bounce
+            let bodyRect = NSRect(x: cx - bodyW / 2 + sway, y: bodyBottom, width: bodyW, height: bodyH)
+            NSBezierPath(rect: bodyRect).fill()
+
+            // Arms — anchored to bodyRect so they always track both sway (X) and bounce (Y);
+            // left/right pump in opposite directions for a natural running look.
+            let armW = 2 * px
+            let armH = 2 * px
+            let armBaseY  = bodyRect.minY + (bodyH - armH) / 2
+            let armSwing  = CGFloat(sin(phase * .pi * 2)) * 1.2
+            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armBaseY + armSwing, width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armBaseY - armSwing, width: armW, height: armH)).fill()
+
+            // Legs — 4 legs, alternating pairs lift off the ground
+            let legW = px
+            let gap  = (bodyW - legW) / 3
+            for i in 0...3 {
+                let xPos     = bodyRect.minX + CGFloat(i) * gap
+                let legPhase = (i % 2 == 0) ? phase : phase + 0.5
+                let lift     = max(0, CGFloat(sin(legPhase * .pi * 2))) * 1.0 
+                NSBezierPath(rect: NSRect(x: xPos, y: groundY + lift, width: legW, height: bodyBottom - groundY - lift)).fill()
+            }
+
+            // Eyes — transparent cutouts, same position logic as idle
+            NSGraphicsContext.current?.compositingOperation = .clear
+            let eyeSize = px
+            let eyeY    = bodyRect.minY + bodyH - 1.5 * px
+            NSBezierPath(rect: NSRect(x: bodyRect.midX - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.midX + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+
             return true
         }
         image.isTemplate = true
@@ -91,28 +111,55 @@ struct ClaudeBeanPack: SpritePack {
     }
 
     private func drawIdleFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
-            let centerX: CGFloat = size.width / 2
-            let bodyWidth: CGFloat = 10.0
-            let bodyHeight: CGFloat = 9.0
-            let legLength: CGFloat = 3.5
-            let breathe = CGFloat(sin(phase * .pi * 2)) * 0.6
-            let squash: CGFloat = 1.0 + CGFloat(sin(phase * .pi * 2)) * 0.03
+        let size = frameSize  // 18×18
+        let image = NSImage(size: size, flipped: false) { _ in
+            let px: CGFloat = 2.0
+            let cx: CGFloat = size.width / 2   // 9
             let groundY: CGFloat = 1.5
-            let bodyBottom = groundY + legLength + breathe
+            let breathe = CGFloat(sin(phase * .pi * 2)) * 0.4
 
-            SpriteDrawing.drawLeg(fromX: centerX - 2.0, fromY: bodyBottom + 1, toX: centerX - 2.5, toY: groundY)
-            SpriteDrawing.drawLeg(fromX: centerX + 2.0, fromY: bodyBottom + 1, toX: centerX + 2.5, toY: groundY)
-            SpriteDrawing.drawRoundedBody(centerX: centerX, bodyBottom: bodyBottom, bodyHeight: bodyHeight, bodyWidth: bodyWidth, squash: squash)
+            NSColor.black.setFill()
 
-            let faceY = bodyBottom + bodyHeight * squash * 0.6
-            let isBlinking = abs(phase - 0.75) < 0.06
-            if isBlinking {
-                SpriteDrawing.drawBlinkLine(centerX: centerX, faceY: faceY)
-            } else {
-                SpriteDrawing.drawFace(centerX: centerX, faceY: faceY, bodyWidth: bodyWidth, lookDirection: 0)
+            // Body: 6×3 px block (12×6 pt) — wide, squat rectangle matching the reference
+            let bodyW = 6 * px   // 12 pt
+            let bodyH = 5 * px   // 6 pt
+            let bodyBottom = groundY + 1.5 * px + breathe
+            let bodyRect = NSRect(x: cx - bodyW / 2, y: bodyBottom, width: bodyW, height: bodyH)
+            NSBezierPath(rect: bodyRect).fill()
+
+            // Arms: 1×2 px stubs centred vertically on the body sides
+            let armW = 2 * px
+            let armH = 2 * px
+            let armY = bodyRect.minY + (bodyH - armH) / 2
+            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armY, width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armY, width: armW, height: armH)).fill()
+
+            // Legs: 4 legs, 1 px wide, evenly spaced, running from body bottom to ground
+            let legW = px
+            let gap = (bodyW - legW) / 3 // The total space available divided by the 3 gaps
+            for i in 0...3 {
+                let xPos = bodyRect.minX + CGFloat(i) * gap
+                // let xPos = bodyRect.minX + CGFloat(i) * bodyW / 5 - legW / 2
+                NSBezierPath(rect: NSRect(x: xPos, y: groundY, width: legW, height: bodyBottom - groundY)).fill()
             }
+
+            // Eyes: transparent cutouts so the menu bar background shows through the black body
+            NSGraphicsContext.current?.compositingOperation = .clear
+            let eyeSize = px
+            let eyeY = bodyRect.minY + bodyH - 1.5 * px
+            let eyeL = NSRect(x: cx - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)
+            let eyeR = NSRect(x: cx + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)
+
+            let isBlinking = abs(phase - 0.5) < 0.1
+            if isBlinking {
+                NSBezierPath(rect: NSRect(x: eyeL.minX, y: eyeL.midY - 0.4, width: eyeSize, height: 0.8)).fill()
+                NSBezierPath(rect: NSRect(x: eyeR.minX, y: eyeR.midY - 0.4, width: eyeSize, height: 0.8)).fill()
+            } else {
+                NSBezierPath(rect: eyeL).fill()
+                NSBezierPath(rect: eyeR).fill()
+            }
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+
             return true
         }
         image.isTemplate = true
@@ -254,134 +301,6 @@ struct RunningCatPack: SpritePack {
                 controlPoint2: NSPoint(x: bodyLeft - 3, y: bodyY + 3 + tailWave * 0.5)
             )
             tail.stroke()
-
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-}
-
-// MARK: - Pack 3: Pixel Robot
-
-/// A blocky pixel-art robot with antenna.
-struct PixelRobotPack: SpritePack {
-    let id = "pixel-robot"
-    let displayName = "Pixel Robot"
-    let frameSize = NSSize(width: 18, height: 18)
-
-    func generateRunFrames() -> [NSImage] {
-        (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }
-    }
-
-    func generateIdleFrames() -> [NSImage] {
-        (0..<4).map { drawIdleFrame(phase: Double($0) / 4.0) }
-    }
-
-    private func drawRunFrame(phase: Double) -> NSImage {
-        let size = frameSize  // 18×18
-        let image = NSImage(size: size, flipped: false) { _ in
-            let px: CGFloat = 2.0
-            let cx: CGFloat = size.width / 2
-            let groundY: CGFloat = 1.5
-
-            // Body sways left/right; slight vertical bounce on each step
-            let sway   = CGFloat(sin(phase * .pi * 2)) * 0.5
-            let bounce = abs(CGFloat(sin(phase * .pi * 2))) * 1.0
-
-            NSColor.black.setFill()
-
-            // Body — same 6×5 px proportions as idle, shifted by sway + bounce
-            let bodyW = 6 * px
-            let bodyH = 5 * px
-            let bodyBottom = groundY + 1.5 * px + bounce
-            let bodyRect = NSRect(x: cx - bodyW / 2 + sway, y: bodyBottom, width: bodyW, height: bodyH)
-            NSBezierPath(rect: bodyRect).fill()
-
-            // Arms — follow body sway (left/right) and pump up/down
-            let armW = 2 * px
-            let armH = 2 * px
-            let armMidY = bodyRect.minY + (bodyH - armH) / 2
-            let armVSwing = CGFloat(sin(phase * .pi * 2)) * 1.2
-            // Explicitly carry the body's sway so the arms visibly track left/right
-            let leftArmX  = cx - bodyW / 2 + sway - armW
-            let rightArmX = cx + bodyW / 2 + sway
-            NSBezierPath(rect: NSRect(x: leftArmX,  y: armMidY + armVSwing, width: armW, height: armH)).fill()
-            NSBezierPath(rect: NSRect(x: rightArmX, y: armMidY + armVSwing, width: armW, height: armH)).fill()
-
-            // Legs — 4 legs, alternating pairs lift off the ground
-            let legW = px
-            let gap  = (bodyW - legW) / 3
-            for i in 0...3 {
-                let xPos     = bodyRect.minX + CGFloat(i) * gap
-                let legPhase = (i % 2 == 0) ? phase : phase + 0.5
-                let lift     = max(0, CGFloat(sin(legPhase * .pi * 2))) * 1.0 
-                NSBezierPath(rect: NSRect(x: xPos, y: groundY + lift, width: legW, height: bodyBottom - groundY - lift)).fill()
-            }
-
-            // Eyes — transparent cutouts, same position logic as idle
-            NSGraphicsContext.current?.compositingOperation = .clear
-            let eyeSize = px
-            let eyeY    = bodyRect.minY + bodyH - 1.5 * px
-            NSBezierPath(rect: NSRect(x: bodyRect.midX - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
-            NSBezierPath(rect: NSRect(x: bodyRect.midX + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-
-    private func drawIdleFrame(phase: Double) -> NSImage {
-        let size = frameSize  // 18×18
-        let image = NSImage(size: size, flipped: false) { _ in
-            let px: CGFloat = 2.0
-            let cx: CGFloat = size.width / 2   // 9
-            let groundY: CGFloat = 1.5
-            let breathe = CGFloat(sin(phase * .pi * 2)) * 0.4
-
-            NSColor.black.setFill()
-
-            // Body: 6×3 px block (12×6 pt) — wide, squat rectangle matching the reference
-            let bodyW = 6 * px   // 12 pt
-            let bodyH = 5 * px   // 6 pt
-            let bodyBottom = groundY + 1.5 * px + breathe
-            let bodyRect = NSRect(x: cx - bodyW / 2, y: bodyBottom, width: bodyW, height: bodyH)
-            NSBezierPath(rect: bodyRect).fill()
-
-            // Arms: 1×2 px stubs centred vertically on the body sides
-            let armW = 2 * px
-            let armH = 2 * px
-            let armY = bodyRect.minY + (bodyH - armH) / 2
-            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armY, width: armW, height: armH)).fill()
-            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armY, width: armW, height: armH)).fill()
-
-            // Legs: 4 legs, 1 px wide, evenly spaced, running from body bottom to ground
-            let legW = px
-            let gap = (bodyW - legW) / 3 // The total space available divided by the 3 gaps
-            for i in 0...3 {
-                let xPos = bodyRect.minX + CGFloat(i) * gap
-                // let xPos = bodyRect.minX + CGFloat(i) * bodyW / 5 - legW / 2
-                NSBezierPath(rect: NSRect(x: xPos, y: groundY, width: legW, height: bodyBottom - groundY)).fill()
-            }
-
-            // Eyes: transparent cutouts so the menu bar background shows through the black body
-            NSGraphicsContext.current?.compositingOperation = .clear
-            let eyeSize = px
-            let eyeY = bodyRect.minY + bodyH - 1.5 * px
-            let eyeL = NSRect(x: cx - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)
-            let eyeR = NSRect(x: cx + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)
-
-            let isBlinking = abs(phase - 0.5) < 0.1
-            if isBlinking {
-                NSBezierPath(rect: NSRect(x: eyeL.minX, y: eyeL.midY - 0.4, width: eyeSize, height: 0.8)).fill()
-                NSBezierPath(rect: NSRect(x: eyeR.minX, y: eyeR.midY - 0.4, width: eyeSize, height: 0.8)).fill()
-            } else {
-                NSBezierPath(rect: eyeL).fill()
-                NSBezierPath(rect: eyeR).fill()
-            }
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
 
             return true
         }

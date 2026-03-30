@@ -26,6 +26,7 @@ final class ClaudeConfigReader {
             account: readAccount(),
             toolUsage: readToolUsage(),
             installedPlugins: readPlugins(),
+            installedSkills: readSkills(),
             firstStartTime: readFirstStartTime()
         )
 
@@ -179,6 +180,38 @@ final class ClaudeConfigReader {
             enabled: true,
             path: path
         )
+    }
+
+    // MARK: - ~/.claude/plugins/marketplaces/.../skills/ Scanning
+
+    /// Discover installed skills from marketplace skill directories.
+    /// Skills are directories under ~/.claude/plugins/marketplaces/<marketplace>/skills/.
+    private func readSkills() -> [SkillInfo] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let marketplacesPath = "\(home)/.claude/plugins/marketplaces"
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: marketplacesPath) else { return [] }
+        guard let marketplaces = try? fm.contentsOfDirectory(atPath: marketplacesPath) else { return [] }
+
+        var skills: [SkillInfo] = []
+
+        for marketplace in marketplaces {
+            let skillsDir = "\(marketplacesPath)/\(marketplace)/skills"
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: skillsDir, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard let skillNames = try? fm.contentsOfDirectory(atPath: skillsDir) else { continue }
+
+            for skillName in skillNames {
+                let skillPath = "\(skillsDir)/\(skillName)"
+                var skillIsDir: ObjCBool = false
+                if fm.fileExists(atPath: skillPath, isDirectory: &skillIsDir), skillIsDir.boolValue {
+                    skills.append(SkillInfo(name: skillName, marketplace: marketplace))
+                }
+            }
+        }
+
+        return skills.sorted { $0.name.lowercased() < $1.name.lowercased() }
     }
 
     /// Parse a standalone plugin JSON file.

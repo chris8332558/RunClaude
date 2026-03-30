@@ -1,5 +1,27 @@
 # RunClaude Changelog
 
+## [2026-03-29] — Skills in profile, animation persistence, live session cleanup
+
+### Added
+- `Engine/Models.swift`: `SkillInfo` struct — skill name and marketplace source, `Identifiable` by name
+- `Engine/ClaudeConfigReader.swift`: `readSkills()` — scans `~/.claude/plugins/marketplaces/<marketplace>/skills/` for installed skill directories; groups by marketplace
+- `Views/UsagePopoverView.swift`: "Skills" section in Profile tab — sparkles icon header with count, adaptive grid of cyan skill tags grouped by marketplace
+
+### Changed
+- `Engine/TokenUsageEngine.swift`: Sliding window duration increased from 10s to 45s — velocity now averages over a longer period so the sprite animation persists through natural gaps in Claude Code output (thinking, tool calls, file reads)
+- `Engine/TokenAggregator.swift`: `isActive` threshold widened from 5s to 30s — matches the session inactive timeout so the green status dot stays lit through typical inter-request pauses
+- `Engine/TokenAggregator.swift`: Added `sessionVisibilityTimeout` (300s) — inactive sessions are hidden from the Live tab after 5 minutes instead of lingering all day; underlying data preserved for daily totals
+- `MenuBar/SpriteAnimator.swift`: Smoothing factor reduced from 0.12 to 0.05 — gives a ~2s ramp-down instead of 0.5s so the sprite decelerates gradually when token flow pauses
+
+### Fixed
+- **Live tab clutter** — Sessions from hours ago no longer appear in the Live tab. The `buildLiveSessions()` filter now requires `lastRecord` within `sessionVisibilityTimeout` (5 min) in addition to `totalTokens > 0`.
+- **Animation stops mid-generation** — The 10s sliding window caused velocity to drop to zero during normal Claude Code pauses (tool execution, thinking). The 45s window plus gentler smoothing keeps the sprite running through these gaps.
+
+### Decisions
+- **45-second sliding window** — Chosen as a balance between responsiveness and persistence. Short enough to detect idle-vs-active within a minute, long enough to bridge typical 10–30s gaps between Claude Code JSONL writes. The old 10s window was tuned for instantaneous responsiveness but felt broken in practice.
+- **5-minute session visibility timeout** — Long enough to see a session wind down after it finishes, short enough that sessions from earlier in the day don't clutter the Live tab. Sessions remain in `fileSessions` for accurate daily totals regardless.
+- **Skills as tags rather than list rows** — Skills are just names (no version, no toggle), so compact tags in an adaptive grid use space more efficiently than the list format used for plugins.
+
 ## [2026-03-28] — Profile tab: account info, tool usage, plugins
 
 ### Added

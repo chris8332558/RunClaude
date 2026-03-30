@@ -157,11 +157,19 @@ struct PluginInfo: Identifiable, Sendable {
     var path: String?
 }
 
+/// An installed skill discovered in ~/.claude/plugins/marketplaces/.../skills/.
+struct SkillInfo: Identifiable, Sendable {
+    var id: String { name }
+    var name: String
+    var marketplace: String  // e.g. "anthropic-agent-skills"
+}
+
 /// Aggregated profile data from config files + plugin directory.
 struct ClaudeProfile: Sendable {
     var account: ClaudeAccount?
     var toolUsage: [ToolUsageStat] = []
     var installedPlugins: [PluginInfo] = []
+    var installedSkills: [SkillInfo] = []
     var firstStartTime: Date?
 
     /// Days since first Claude Code session.
@@ -195,4 +203,5 @@ struct UsageState: Sendable {
     var weeklyHistory: [HistoryDataPoint] = []   // last 7 days
     var monthlyHistory: [HistoryDataPoint] = []  // last 30 days
     var claudeProfile: ClaudeProfile = ClaudeProfile()  // account + tools + plugins
+    var lifetimeTotalTokens: Int = 0                     // sum of all historical days
 }
