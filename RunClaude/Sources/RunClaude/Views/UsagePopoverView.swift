@@ -343,26 +343,39 @@ struct UsagePopoverView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            let models = engine.state.todayUsage.modelBreakdown
-                .sorted { $0.value.totalTokens > $1.value.totalTokens }
+            // Merge entries that share the same display name (e.g. claude-sonnet-4-6
+            // and claude-sonnet-4-20250514 both show as "Sonnet").
+            let merged: [(name: String, tokens: Int, cost: Double)] = {
+                var grouped: [String: (tokens: Int, cost: Double)] = [:]
+                for (model, usage) in engine.state.todayUsage.modelBreakdown {
+                    let key = shortModelName(model)
+                    grouped[key] = (
+                        tokens: (grouped[key]?.tokens ?? 0) + usage.totalTokens,
+                        cost:   (grouped[key]?.cost   ?? 0) + usage.estimatedCost
+                    )
+                }
+                return grouped
+                    .map { (name: $0.key, tokens: $0.value.tokens, cost: $0.value.cost) }
+                    .sorted { $0.tokens > $1.tokens }
+            }()
 
-            if models.isEmpty {
+            if merged.isEmpty {
                 Text("No usage yet")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                ForEach(models, id: \.key) { model, usage in
+                ForEach(merged, id: \.name) { entry in
                     HStack {
                         Circle()
-                            .fill(colorForModel(model))
+                            .fill(colorForModel(entry.name))
                             .frame(width: 6, height: 6)
-                        Text(shortModelName(model))
+                        Text(entry.name)
                             .font(.caption)
                             .lineLimit(1)
                         Spacer()
-                        Text(formatTokenCount(usage.totalTokens))
+                        Text(formatTokenCount(entry.tokens))
                             .font(.system(.caption2, design: .monospaced))
-                        Text(CostCalculator.formatCost(usage.estimatedCost))
+                        Text(CostCalculator.formatCost(entry.cost))
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundColor(.secondary)
                             .frame(width: 50, alignment: .trailing)

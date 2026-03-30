@@ -1,5 +1,16 @@
 # RunClaude Changelog
 
+## [2026-03-30] — Fix duplicate model rows, document cache token discrepancy
+
+### Fixed
+- `Views/UsagePopoverView.swift`: Today tab showed duplicate model rows (e.g. two "Sonnet" entries) when multiple model version IDs mapped to the same family. Root cause: `modelBreakdown` keys are raw API model strings (`claude-sonnet-4-6`, `claude-sonnet-4-20250514`, etc.), so variants accumulated as separate entries. `modelBreakdownSection` now groups by `shortModelName()` before rendering, merging tokens and costs across all variants into a single row per family.
+
+### Changed
+- `docs/token_cost_counting.md`: Added "Why totals differ from Claude Code's `/stats`" subsection explaining that cache read tokens dominate counts (~90% of total in a typical session), which causes a ~100× difference between RunClaude's `totalTokens` (all 4 types) and what `/stats` likely reports (input + output only). Includes a real example table. Also corrected sliding window duration from 10s to 45s.
+
+### Decisions
+- **Merge at display time, not storage time** — Model variants are kept as separate keys in `modelBreakdown` so that per-version cost calculation remains accurate (each raw model ID resolves to its own pricing). Merging happens only in the view layer when rendering the breakdown list.
+
 ## [2026-03-30] — Cost bug fixes, CPU optimisations, profile stat redesign
 
 ### Added
