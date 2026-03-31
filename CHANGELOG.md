@@ -1,5 +1,13 @@
 # RunClaude Changelog
 
+## [2026-03-31] — Fix reset-time parser dropping time token (e.g. "2pm")
+
+### Fixed
+- `Engine/RateLimitFetcher.swift`: `resetsAt` extraction now strips only the leading letter portion of the garbled "Resets" word (`Rese[a-zA-Z]*`) rather than everything up to the first whitespace. PTY `\r` overwrites can merge "Resets" with the next token (e.g. `"Reses2pm (America/Los_Angeles)"`); the old fallback found the first space after "2pm", discarding the time entirely. The new regex stops before digits so "2pm" is preserved.
+
+### Decisions
+- **Regex `Rese[a-zA-Z]*` over splitting on whitespace** — the first-space approach works when the garbled prefix and the time are separated by a space, but fails when they're merged into one word. Matching only the letter run after "Rese" is robust to both the clean and garbled cases without needing a special-case branch for each.
+
 ## [2026-03-30] — Speed up rate-limit fetch: 5-min cache + early PTY termination
 
 ### Changed

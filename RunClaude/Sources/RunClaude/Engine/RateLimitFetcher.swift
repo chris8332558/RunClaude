@@ -370,14 +370,12 @@ final class RateLimitFetcher: ObservableObject {
                 pendingPct = pct
             } else if line.range(of: #"^Rese\w*\s"#, options: .regularExpression) != nil,
                       let pct = pendingPct, let ctx = context {
-                // Strip the leading "Resets"/"Reses" word (may be garbled by PTY \r overwrites)
-                // to extract the reset-time string that follows.
+                // Strip the leading "Resets"/"Reses" word (may be garbled by PTY \r overwrites,
+                // merging the word with the next token e.g. "Reses2pm"). Match only the letter
+                // portion so digits (the time) aren't consumed along with the garbled prefix.
                 let resetsAt: String
-                if line.hasPrefix("Resets ") {
-                    resetsAt = String(line.dropFirst("Resets ".count))
-                        .trimmingCharacters(in: .whitespaces)
-                } else if let spaceRange = line.range(of: #"\s+"#, options: .regularExpression) {
-                    resetsAt = String(line[spaceRange.upperBound...])
+                if let wordEnd = line.range(of: #"^Rese[a-zA-Z]*"#, options: .regularExpression) {
+                    resetsAt = String(line[wordEnd.upperBound...])
                         .trimmingCharacters(in: .whitespaces)
                 } else {
                     resetsAt = line
