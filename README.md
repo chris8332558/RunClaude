@@ -15,3 +15,6 @@ cd RunClaude && ./Scripts/make-app.sh
 ```bash
 open build/RunClaude.app   
 ```
+
+
+Inspired by [ccusage](https://github.com/ryoppippi/ccusage).
