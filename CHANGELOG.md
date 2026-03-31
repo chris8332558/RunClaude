@@ -1,5 +1,13 @@
 # RunClaude Changelog
 
+## [2026-03-30] — Persist rate-limit data across popover open/close; clock timestamp
+
+### Fixed
+- `MenuBar/MenuBarController.swift`: `showPopover()` was creating a new `NSPopover` + `NSHostingController` on every open, resetting all SwiftUI `@StateObject` instances (including `RateLimitFetcher`) to initial state. Popover is now created once and reused — fetched data survives close/reopen.
+
+### Changed
+- `Views/UsagePopoverView.swift`: "Updated" timestamp changed from a relative string ("2m ago") to an absolute clock time ("3:45 PM"). Relative time requires a live timer to stay accurate; absolute time is always correct without any refresh mechanism.
+
 ## [2026-03-30] — Fix rate-limit parser: \r garbling, missing space in % token
 
 ### Fixed

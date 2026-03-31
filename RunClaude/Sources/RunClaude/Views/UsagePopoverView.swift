@@ -648,7 +648,7 @@ struct UsagePopoverView: View {
                 if let w = info.week {
                     rateLimitRow(label: "Current week", window: w)
                 }
-                Text("Updated \(relativeTime(info.fetchedAt))")
+                Text("Updated \(clockTime(info.fetchedAt))")
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundColor(.secondary.opacity(0.6))
             } else if rateLimitFetcher.isLoading {
@@ -703,11 +703,11 @@ struct UsagePopoverView: View {
         }
     }
 
-    private func relativeTime(_ date: Date) -> String {
-        let elapsed = Int(Date().timeIntervalSince(date))
-        if elapsed < 60 { return "just now" }
-        if elapsed < 3600 { return "\(elapsed / 60)m ago" }
-        return "\(elapsed / 3600)h ago"
+    private func clockTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f.string(from: date)
     }
 
     // MARK: - Profile Account Section

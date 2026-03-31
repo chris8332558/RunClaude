@@ -119,19 +119,22 @@ final class MenuBarController {
     }
 
     private func showPopover() {
-        let popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 420)
-        popover.behavior = .transient
-        popover.animates = true
-        popover.contentViewController = NSHostingController(
-            rootView: UsagePopoverView(engine: engine)
-        )
-
-        if let button = statusItem?.button {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Create once and reuse — keeps SwiftUI @StateObject instances (e.g. RateLimitFetcher)
+        // alive across open/close cycles so fetched data persists.
+        if popover == nil {
+            let p = NSPopover()
+            p.contentSize = NSSize(width: 320, height: 420)
+            p.behavior = .transient
+            p.animates = true
+            p.contentViewController = NSHostingController(
+                rootView: UsagePopoverView(engine: engine)
+            )
+            self.popover = p
         }
 
-        self.popover = popover
+        if let button = statusItem?.button {
+            popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
 
         // Close popover when clicking outside
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
