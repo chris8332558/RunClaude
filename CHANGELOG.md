@@ -1,5 +1,26 @@
 # RunClaude Changelog
 
+## [2026-03-30] — Fix rate-limit parser: \r garbling, missing space in % token
+
+### Fixed
+- `Engine/RateLimitFetcher.swift`: `parse()` now normalises PTY line endings (`\r\n` → `\n`, bare `\r` → `\n`) before ANSI stripping. Without this, progress-spinner overwrites left `\r` mid-string, causing lines like `"Resets at 1m"` to be garbled into `"Reses1m"` and miss the `hasPrefix("Resets")` guard entirely.
+- `Engine/RateLimitFetcher.swift`: `extractPercentage` regex changed from `\d+%\s+used` to `\d+%\s*used` — ANSI stripping was collapsing the space between `%` and `used` (e.g. `"0%used"`), causing percentage extraction to return `nil` for every line.
+- `Engine/RateLimitFetcher.swift`: "Resets" line detection changed from `hasPrefix("Resets")` to a regex `^Rese\w*\s` to tolerate garbled prefixes that may survive even after `\r` normalisation. `resetsAt` extraction falls back to "everything after the first whitespace block" when the clean `"Resets "` prefix is absent.
+
+### Decisions
+- **Normalise before stripping, not after** — `\r` must be handled before the ANSI regex runs; a bare `\r` is not an ANSI sequence and the existing regex would leave it in place, causing split-by-newline to include both the original and overwritten text on the same "line".
+
+## [2026-03-30] — Event-driven PTY synchronisation for rate-limit fetcher
+
+### Changed
+- `Engine/RateLimitFetcher.swift`: `runClaudeUsage()` rewritten to be event-driven instead of timer-based. Previously, startup was gated by a fixed 3.5 s `sleep` followed by a drain-and-discard; now the function waits for the REPL's `> ` prompt to appear in the PTY output before sending `/usage`. Response collection likewise waits for the next `> ` prompt rather than using a 2.5 s "settled output" heuristic with a 10 s hard deadline.
+- `Engine/RateLimitFetcher.swift`: stderr now routed into the same slave PTY as stdout (was discarded to `/dev/null`), so startup errors (e.g. auth failures) are captured in the raw output and visible in debug logs.
+- `Engine/RateLimitFetcher.swift`: Command terminator changed from `/usage\n` + second `\n` (workaround for autocomplete) to `/usage\r`, which is the correct line-end character for a PTY.
+- `Engine/RateLimitFetcher.swift`: Read loop extracted into a `readAvailable(into:)` local helper, called by a shared `waitForPrompt()` function used for both startup and post-command synchronisation.
+
+### Decisions
+- **Prompt detection over fixed sleeps** — Fixed delays are fragile: they over-wait on fast machines and under-wait under load. Watching for `> ` in the PTY stream is the minimal reliable signal that the REPL is ready without requiring any changes to how `claude` is invoked.
+
 ## [2026-03-30] — Fix duplicate model rows, document cache token discrepancy
 
 ### Fixed

@@ -8,6 +8,7 @@ import Charts
 struct UsagePopoverView: View {
     @ObservedObject var engine: TokenUsageEngine
     @State private var selectedTab: PopoverTab = .live
+    @StateObject private var rateLimitFetcher = RateLimitFetcher()
 
     enum PopoverTab: String, CaseIterable {
         case live = "Live"
@@ -582,6 +583,11 @@ struct UsagePopoverView: View {
 
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 10) {
+                // Rate limit section
+                rateLimitSection
+
+                Divider()
+
                 // Account section
                 profileAccountSection(profile)
 
@@ -604,6 +610,107 @@ struct UsagePopoverView: View {
             }
         }
     }
+
+    // MARK: - Rate Limit Section
+
+    private var rateLimitSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 12))
+                    .foregroundColor(.accentColor)
+                Text("Usage Limits")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    rateLimitFetcher.refresh()
+                } label: {
+                    if rateLimitFetcher.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                .disabled(rateLimitFetcher.isLoading)
+            }
+
+            if let info = rateLimitFetcher.info {
+                if let s = info.session {
+                    rateLimitRow(label: "Current session", window: s)
+                }
+                if let w = info.week {
+                    rateLimitRow(label: "Current week", window: w)
+                }
+                Text("Updated \(relativeTime(info.fetchedAt))")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.6))
+            } else if rateLimitFetcher.isLoading {
+                Text("Fetching from claude /usage…")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else if let err = rateLimitFetcher.errorMessage {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(.red.opacity(0.8))
+            } else {
+                Text("Tap ↻ to fetch subscription limits")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func rateLimitRow(label: String, window: RateLimitWindow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text("\(window.percentage)%")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(rateLimitColor(window.percentage))
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 6)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(rateLimitColor(window.percentage))
+                        .frame(width: geo.size.width * CGFloat(window.percentage) / 100.0,
+                               height: 6)
+                }
+            }
+            .frame(height: 6)
+            Text("Resets \(window.resetsAt)")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func rateLimitColor(_ pct: Int) -> Color {
+        switch pct {
+        case ..<60:  return .green
+        case ..<80:  return .orange
+        default:     return .red
+        }
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let elapsed = Int(Date().timeIntervalSince(date))
+        if elapsed < 60 { return "just now" }
+        if elapsed < 3600 { return "\(elapsed / 60)m ago" }
+        return "\(elapsed / 3600)h ago"
+    }
+
+    // MARK: - Profile Account Section
 
     private func profileAccountSection(_ profile: ClaudeProfile) -> some View {
         VStack(alignment: .leading, spacing: 6) {
