@@ -1,5 +1,6 @@
 # RunClaude
-RunCat but RunClaude
+
+A little Clawd that lives in you Mac's menu bar.
 
 
 ## How to run
