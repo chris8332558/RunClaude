@@ -47,10 +47,24 @@ final class RateLimitFetcher: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
+    /// Results are cached for this many seconds; `refresh(force:)` with `force: true` bypasses it.
+    static let cacheMaxAge: TimeInterval = 5 * 60
+
     // MARK: - Public API
 
-    func refresh() {
+    /// Fetches usage data.
+    /// - Parameter force: When `true` always re-fetches even if the cache is fresh.
+    ///   Pass `false` (the default) for automatic/background refreshes so the
+    ///   first open is fast and the expensive PTY spawn is avoided on repeat opens.
+    func refresh(force: Bool = false) {
         guard !isLoading else { return }
+
+        // Serve from cache if the data is fresh enough and the caller didn't force.
+        if !force, let existing = info,
+           Date().timeIntervalSince(existing.fetchedAt) < Self.cacheMaxAge {
+            return
+        }
+
         isLoading = true
         errorMessage = nil
 
@@ -260,27 +274,29 @@ final class RateLimitFetcher: ObservableObject {
             }
         }
 
-        func waitForPrompt(buffer: inout Data, timeout: TimeInterval = 10) async throws {
+        /// Polls until the buffer contains a stop condition or the timeout expires.
+        /// - `promptReady`: `\n> ` / trailing `> ` — REPL is waiting for input
+        /// - `earlyExit`: caller-supplied predicate for content-based early exit
+        func waitFor(buffer: inout Data, timeout: TimeInterval = 10,
+                     earlyExit: (String) -> Bool = { _ in false }) async throws {
             let deadline = Date().addingTimeInterval(timeout)
 
             while Date() < deadline {
                 readAvailable(into: &buffer)
 
-                if let str = String(data: buffer, encoding: .utf8),
-                str.contains("\n> ") || str.hasSuffix("> ") {
-                    return
+                if let str = String(data: buffer, encoding: .utf8) {
+                    if str.contains("\n> ") || str.hasSuffix("> ") { return }
+                    if earlyExit(str) { return }
                 }
 
                 try await Task.sleep(nanoseconds: 100_000_000) // 0.1s
             }
-
-            // throw RateLimitError.timeout
         }
 
         // MARK: - 1. Wait for initial prompt
 
         var buffer = Data()
-        try await waitForPrompt(buffer: &buffer)
+        try await waitFor(buffer: &buffer)
 
         debugLog("[RateLimitFetcher] initial prompt detected")
 
@@ -291,9 +307,12 @@ final class RateLimitFetcher: ObservableObject {
         let cmd = "/usage\r"
         _ = cmd.withCString { write(master, $0, strlen($0)) }
 
-        // MARK: - 3. Read until next prompt
+        // MARK: - 3. Read until usage data is present
+        // "Esc to cancel" is the last line claude renders in the /usage panel,
+        // appearing before the trailing "> " prompt. Stopping here avoids waiting
+        // for the REPL to redraw its input line, which saves ~0.5–1 s.
 
-        try await waitForPrompt(buffer: &buffer)
+        try await waitFor(buffer: &buffer, earlyExit: { $0.contains("Esc to cancel") })
 
         // MARK: - 4. Convert output
 

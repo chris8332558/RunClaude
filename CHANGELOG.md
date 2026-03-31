@@ -1,5 +1,18 @@
 # RunClaude Changelog
 
+## [2026-03-30] — Speed up rate-limit fetch: 5-min cache + early PTY termination
+
+### Changed
+- `Engine/RateLimitFetcher.swift`: `refresh()` now accepts a `force: Bool` parameter and skips the PTY spawn when cached data is < 5 minutes old (`cacheMaxAge = 300s`). Repeat opens of the Profile tab are instant; the ↻ button passes `force: true` to always re-fetch.
+- `Engine/RateLimitFetcher.swift`: After sending `/usage\r`, the PTY read loop now exits as soon as `"Esc to cancel"` appears in the buffer — the last line rendered by the usage panel — rather than waiting for the trailing REPL `> ` prompt to redraw. Saves ~0.5–1 s per fetch.
+- `Engine/RateLimitFetcher.swift`: Renamed `waitForPrompt` to `waitFor` and added an `earlyExit` predicate parameter to express both stop conditions uniformly.
+- `Views/UsagePopoverView.swift`: Refresh button now calls `refresh(force: true)`.
+
+### Decisions
+- **Can't use the API directly** — the `claude.ai/api/organizations/{id}/rate_limits` endpoint exists but is behind Cloudflare bot protection; plain HTTP requests with the Bearer token receive a JS challenge. The `claude` CLI solves this internally. The PTY approach is unavoidable.
+- **`--bare` flag not usable** — `--bare` starts in ~1s but disables OAuth/keychain reads, so `/usage` reports "Not logged in".
+- **Cache instead of keep-alive** — keeping a long-running `claude` process resident would eliminate startup time but adds complexity and resource overhead; a 5-min cache achieves the same perceived speed for the typical "glance at limits" use case.
+
 ## [2026-03-30] — Persist rate-limit data across popover open/close; clock timestamp
 
 ### Fixed

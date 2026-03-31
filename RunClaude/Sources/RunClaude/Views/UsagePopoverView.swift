@@ -625,7 +625,7 @@ struct UsagePopoverView: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 Button {
-                    rateLimitFetcher.refresh()
+                    rateLimitFetcher.refresh(force: true)
                 } label: {
                     if rateLimitFetcher.isLoading {
                         ProgressView()
