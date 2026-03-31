@@ -1,7 +1,11 @@
 # RunClaude
 
-A little Clawd that lives in you Mac's menu bar.
+A little Clawd that lives in your Mac's menu bar that helps you track your token usage.
 
+
+<img src="images/Icon.png" alt="Icon" width="100">
+
+---
 
 ## How to run
 
@@ -17,5 +21,23 @@ cd RunClaude && ./Scripts/make-app.sh
 open build/RunClaude.app   
 ```
 
+---
+
+## Screenshots
+
+**Live** — real-time tokens and cost for the active Claude session, refreshing every 0.5 seconds.
+
+<img src="images/Live.png" alt="Live" width="500">
+
+**7 Days** — token and cost breakdown over the past week, with daily bar charts.
+
+<img src="images/7Days.png" alt="7 Days" width="500">
+
+**Profile** — account summary showing total days, lifetime tokens, and usage limits for the current session and week.
+
+<img src="images/profile.png" alt="Profile" width="500">
+
+
+---
 
 Inspired by [ccusage](https://github.com/ryoppippi/ccusage).
