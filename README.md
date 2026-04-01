@@ -44,3 +44,11 @@ open build/RunClaude.app
 ---
 
 Inspired by [ccusage](https://github.com/ryoppippi/ccusage).
+
+---
+
+## Test Token Using
+
+```bash
+swift Scripts/generate-test-data.swift --live
+```
