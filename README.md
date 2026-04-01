@@ -8,6 +8,10 @@ A little Clawd that lives in your Mac's menu bar that helps you track your token
 <video src="images/RunClaude Demo.mp4" controls width="80%"></video>
 
 
+https://github.com/user-attachments/assets/1888f406-ad95-4be4-b69c-900cb1193d11
+
+
+
 ---
 
 ## How to run
