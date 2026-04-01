@@ -1,9 +1,32 @@
 import AppKit
 
+// MARK: - Animation Clip
+
+/// Broad category that determines when a clip is eligible to play.
+enum AnimationCategory {
+    case run   // plays while Claude is active / processing
+    case idle  // plays while Claude is waiting
+}
+
+/// A single named, looping animation sequence within a sprite pack.
+struct AnimationClip {
+    /// Unique identifier within its pack (e.g. "run", "run_angled", "idle").
+    let id: String
+    /// Determines which state can play this clip.
+    let category: AnimationCategory
+    /// The frames that make up the loop.
+    let frames: [NSImage]
+}
+
 // MARK: - Sprite Pack Protocol
 
-/// A sprite pack provides run and idle animation frames.
-/// Implement this to add new character styles.
+/// A sprite pack provides one or more named animation clips.
+///
+/// **New-style packs** implement `clips()` and get `generateRunFrames()` /
+/// `generateIdleFrames()` for free via the extension defaults.
+///
+/// **Legacy packs** implement `generateRunFrames()` / `generateIdleFrames()`
+/// and get a single-variant `clips()` for free via the extension defaults.
 protocol SpritePack {
     /// Unique identifier for this pack (used in UserDefaults).
     var id: String { get }
@@ -11,10 +34,36 @@ protocol SpritePack {
     var displayName: String { get }
     /// The size of each frame in points.
     var frameSize: NSSize { get }
-    /// Generate the running animation frames.
+    /// All animation clips this pack provides.
+    /// Default implementation wraps `generateRunFrames()` / `generateIdleFrames()`.
+    func clips() -> [AnimationClip]
+    /// Legacy: single run animation.  Default delegates to `clips()`.
     func generateRunFrames() -> [NSImage]
-    /// Generate the idle animation frames.
+    /// Legacy: single idle animation.  Default delegates to `clips()`.
     func generateIdleFrames() -> [NSImage]
+}
+
+extension SpritePack {
+    // New-style pack: implements clips() → legacy callers work via these defaults.
+    func generateRunFrames() -> [NSImage] {
+        clips().first { $0.category == .run }?.frames ?? []
+    }
+    func generateIdleFrames() -> [NSImage] {
+        clips().first { $0.category == .idle }?.frames ?? []
+    }
+
+    // Legacy pack: implements generateRun/IdleFrames() → clips() works via this default.
+    func clips() -> [AnimationClip] {
+        [
+            AnimationClip(id: "run",  category: .run,  frames: generateRunFrames()),
+            AnimationClip(id: "idle", category: .idle, frames: generateIdleFrames()),
+        ]
+    }
+
+    /// Returns a random clip for the given category, or nil if none are available.
+    func randomClip(for category: AnimationCategory) -> AnimationClip? {
+        clips().filter { $0.category == category }.randomElement()
+    }
 }
 
 // MARK: - Sprite Pack Registry
@@ -49,12 +98,21 @@ struct ClawdPack: SpritePack {
     let displayName = "Clawd"
     let frameSize = NSSize(width: 18, height: 18)
 
-    func generateRunFrames() -> [NSImage] {
-        (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }
-    }
-
-    func generateIdleFrames() -> [NSImage] {
-        (0..<4).map { drawIdleFrame(phase: Double($0) / 4.0) }
+    func clips() -> [AnimationClip] {
+        [
+            // AnimationClip(id: "run",
+            //               category: .run,
+            //               frames: (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }),
+            AnimationClip(id: "run_two",
+                          category: .run,
+                          frames: (0..<8).map { drawRunFrameTwo(phase: Double($0) / 8.0) }),
+            // AnimationClip(id: "run_angled",
+            //               category: .run,
+            //               frames: (0..<8).map { drawAngledRunFrame(phase: Double($0) / 8.0) }),
+            AnimationClip(id: "idle",
+                          category: .idle,
+                          frames: (0..<4).map { drawIdleFrame(phase: Double($0) / 4.0) }),
+        ]
     }
 
     private func drawRunFrame(phase: Double) -> NSImage {
@@ -102,6 +160,140 @@ struct ClawdPack: SpritePack {
             let eyeY    = bodyRect.minY + bodyH - 1.5 * px
             NSBezierPath(rect: NSRect(x: bodyRect.midX - 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
             NSBezierPath(rect: NSRect(x: bodyRect.midX + 3.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+
+    private func drawRunFrameTwo(phase: Double) -> NSImage {
+        let size = frameSize  // 18×18
+        let image = NSImage(size: size, flipped: false) { _ in
+            let px: CGFloat = 2.0
+            let cx: CGFloat = size.width / 2
+            let groundY: CGFloat = 1.5
+
+            // Body sways left/right; slight vertical bounce on each step
+            let sway   = CGFloat(sin(phase * .pi * 2)) * 0.5
+            let bounce = abs(CGFloat(sin(phase * .pi * 2))) * 1.0
+
+            NSColor.black.setFill()
+
+            // Body — same 6×5 px proportions as idle, shifted by sway + bounce
+            let bodyW = 6 * px
+            let bodyH = 5 * px
+            let bodyBottom = groundY + 1.5 * px + bounce
+            let bodyRect = NSRect(x: cx - bodyW / 2 + sway, y: bodyBottom, width: bodyW, height: bodyH)
+            NSBezierPath(rect: bodyRect).fill()
+
+            // Arms — anchored to bodyRect so they always track both sway (X) and bounce (Y);
+            // left/right pump in opposite directions for a natural running look.
+            let armW = 2 * px
+            let armH = 2 * px
+            let armBaseY  = bodyRect.minY + (bodyH - armH) / 2
+            let armSwing  = CGFloat(sin(phase * .pi * 2)) * 0.5 
+            NSBezierPath(rect: NSRect(x: bodyRect.minX - armW, y: armBaseY - armSwing, width: armW, height: armH)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.maxX,        y: armBaseY + armSwing, width: armW, height: armH)).fill()
+
+            // Legs — 4 legs, each staggered by ¼ cycle so they lift one at a time
+            let legW = px
+            let gap  = (bodyW - legW) / 3
+            for i in 0...3 {
+                let xPos     = bodyRect.minX + CGFloat(i) * gap
+                let legPhase = phase + Double(i) * 0.25
+                let lift     = max(0, CGFloat(sin(legPhase * .pi * 2))) * 1.5
+                NSBezierPath(rect: NSRect(x: xPos, y: groundY + lift, width: legW, height: bodyBottom - groundY - lift)).fill()
+            }
+
+            // Eyes — transparent cutouts, same position logic as idle
+            NSGraphicsContext.current?.compositingOperation = .clear
+            let eyeSize = px
+            let eyeY    = bodyRect.minY + bodyH - 1.5 * px
+            NSBezierPath(rect: NSRect(x: bodyRect.midX - 1.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSBezierPath(rect: NSRect(x: bodyRect.midX + 4.0 - eyeSize / 2, y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// Draws the character from a 45-degree angled perspective.
+    /// The body is rendered as a parallelogram (bottom edge at ground position,
+    /// top edge shifted right by `shear` pts) to simulate depth foreshortening.
+    private func drawAngledRunFrame(phase: Double) -> NSImage {
+        let size = frameSize  // 18×18
+        let image = NSImage(size: size, flipped: false) { _ in
+            let px: CGFloat = 2.0
+            let cx: CGFloat = size.width / 2
+            let groundY: CGFloat = 1.5
+            // Horizontal offset between the body's bottom and top edges.
+            let shear: CGFloat = 3.0
+
+            let bounce = abs(CGFloat(sin(phase * .pi * 2))) * 0.8
+
+            NSColor.black.setFill()
+
+            let bodyW: CGFloat = 5 * px   // slightly narrower to sell the foreshortening
+            let bodyH: CGFloat = 5 * px
+            let bodyBottom = groundY + 1.5 * px + bounce
+            let bodyTopY   = bodyBottom + bodyH
+            // Shift the whole body left so the sheared top stays inside the canvas.
+            let bx = cx - bodyW / 2 - shear * 0.5
+
+            // Body as parallelogram — bottom row at bx…bx+bodyW,
+            // top row shifted right by `shear`.
+            let body = NSBezierPath()
+            body.move(to: NSPoint(x: bx,                 y: bodyBottom))
+            body.line(to: NSPoint(x: bx + bodyW,         y: bodyBottom))
+            body.line(to: NSPoint(x: bx + bodyW + shear, y: bodyTopY))
+            body.line(to: NSPoint(x: bx + shear,         y: bodyTopY))
+            body.close()
+            body.fill()
+
+            // Arms — anchored at mid-body height (shear × 0.5 offset from body edges).
+            let armSwing    = CGFloat(sin(phase * .pi * 2)) * 1.0
+            let armMidShear = shear * 0.5
+            let armY        = bodyBottom + (bodyH - 1.5 * px) / 2
+
+            // Near arm (right side — larger, closer to viewer)
+            NSBezierPath(rect: NSRect(
+                x: bx + bodyW + armMidShear,
+                y: armY + armSwing,
+                width: 1.5 * px, height: 1.5 * px
+            )).fill()
+
+            // Far arm (left side — smaller, receding)
+            NSBezierPath(rect: NSRect(
+                x: bx + armMidShear - 1.5 * px,
+                y: armY - armSwing,
+                width: 1.5 * px, height: px
+            )).fill()
+
+            // Legs — four legs, alternating lift, evenly spaced across body width
+            let legW = px
+            let gap  = (bodyW - legW) / 3
+            for i in 0...3 {
+                let legPhase = (i % 2 == 0) ? phase : phase + 0.5
+                let lift     = max(0, CGFloat(sin(legPhase * .pi * 2))) * 1.0
+                let xPos     = bx + CGFloat(i) * gap
+                NSBezierPath(rect: NSRect(
+                    x: xPos, y: groundY + lift,
+                    width: legW, height: bodyBottom - groundY - lift
+                )).fill()
+            }
+
+            // Eyes — transparent cutouts at the top of the angled body;
+            // x-positions follow the full shear so they sit inside the parallelogram.
+            NSGraphicsContext.current?.compositingOperation = .clear
+            let eyeSize = px
+            let eyeY    = bodyTopY - 1.5 * px
+            NSBezierPath(rect: NSRect(x: bx + shear + px,     y: eyeY, width: eyeSize, height: eyeSize)).fill()
+            NSBezierPath(rect: NSRect(x: bx + shear + 3 * px, y: eyeY, width: eyeSize, height: eyeSize)).fill()
             NSGraphicsContext.current?.compositingOperation = .sourceOver
 
             return true
@@ -461,7 +653,7 @@ struct GhostPack: SpritePack {
     }
 }
 
-// MARK: - Pack 6: Witch
+// MARK: - Pack 6: Custom images
 
 /// A witch-on-broomstick character loaded from PNG sprite sheet frames.
 /// Source images: B_witch_1…6.png (111×48 px RGBA), scaled to fit the menu bar.
@@ -469,15 +661,15 @@ struct CustomPack: SpritePack {
     let id = "custom"
     let displayName = "Custom"
     // Maintain 111:48 aspect ratio at 18 pt height → ~42×18 pt
-    let frameSize = NSSize(width: 20, height: 30)
+    let frameSize = NSSize(width: 4, height: 4)
 
     func generateRunFrames() -> [NSImage] {
-        (1...6).compactMap { loadFrame("B_witch_\($0)") }
+        (0...2).compactMap { loadFrame("custom_\($0)") }
     }
 
     func generateIdleFrames() -> [NSImage] {
         // Gentle hover: alternate first two frames
-        [1, 2, 1, 2, 1, 2].compactMap { loadFrame("B_witch_\($0)") }
+        [1, 2, 1, 2, 1, 2].compactMap { loadFrame("custom_\($0)") }
     }
 
     private func loadFrame(_ name: String) -> NSImage? {

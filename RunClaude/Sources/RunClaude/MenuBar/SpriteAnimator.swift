@@ -4,21 +4,24 @@ import AppKit
 
 /// Cycles through sprite frames at a variable rate.
 ///
-/// Manages two animation sets (running + idle) and smoothly transitions
-/// between them based on the current token velocity.
+/// Manages clip libraries for the run and idle categories and randomly selects
+/// a clip from the appropriate library whenever a cycle completes.
 /// Supports hot-swapping sprite packs at runtime.
 final class SpriteAnimator {
 
     /// Callback with the current frame image to display.
     var onFrame: ((NSImage) -> Void)?
 
-    /// Running animation frames.
-    private var runFrames: [NSImage]
+    /// All run clips from the current pack.
+    private var runClips: [AnimationClip]
 
-    /// Idle animation frames.
-    private var idleFrames: [NSImage]
+    /// All idle clips from the current pack.
+    private var idleClips: [AnimationClip]
 
-    /// Current frame index within the active animation set.
+    /// The clip that is currently playing.
+    private var currentClip: AnimationClip
+
+    /// Current frame index within the active clip.
     private var currentFrameIndex: Int = 0
 
     /// Whether we're currently in idle mode.
@@ -49,9 +52,11 @@ final class SpriteAnimator {
 
     init(pack: SpritePack? = nil) {
         let p = pack ?? SpritePackRegistry.currentPack()
-        self.runFrames = p.generateRunFrames()
-        self.idleFrames = p.generateIdleFrames()
+        let all = p.clips()
+        self.runClips  = all.filter { $0.category == .run }
+        self.idleClips = all.filter { $0.category == .idle }
         self.currentPackId = p.id
+        self.currentClip = idleClips.randomElement() ?? runClips[0]
     }
 
     // MARK: - Control
@@ -72,10 +77,14 @@ final class SpriteAnimator {
     func update(interval: TimeInterval, idle: Bool) {
         targetInterval = interval
 
-        // Switch animation set if mode changed
+        // Switch clip library if mode changed; pick a fresh random clip.
         if idle != isIdle {
             isIdle = idle
             currentFrameIndex = 0
+            let candidates = idle ? idleClips : runClips
+            if let clip = candidates.randomElement() {
+                currentClip = clip
+            }
         }
     }
 
@@ -83,9 +92,14 @@ final class SpriteAnimator {
     func switchPack(_ pack: SpritePack) {
         guard pack.id != currentPackId else { return }
         currentPackId = pack.id
-        runFrames = pack.generateRunFrames()
-        idleFrames = pack.generateIdleFrames()
+        let all = pack.clips()
+        runClips  = all.filter { $0.category == .run }
+        idleClips = all.filter { $0.category == .idle }
         currentFrameIndex = 0
+        let candidates = isIdle ? idleClips : runClips
+        if let clip = candidates.randomElement() {
+            currentClip = clip
+        }
     }
 
     /// The frame size of the current pack (for NSStatusItem sizing).
@@ -112,13 +126,20 @@ final class SpriteAnimator {
     }
 
     private func advanceFrame() {
-        let frames = isIdle ? idleFrames : runFrames
+        let frames = currentClip.frames
         guard !frames.isEmpty else { return }
 
         currentFrameIndex = (currentFrameIndex + 1) % frames.count
-        let frame = frames[currentFrameIndex]
+        onFrame?(frames[currentFrameIndex])
 
-        onFrame?(frame)
+        // At the end of each cycle, randomly select the next clip to play.
+        if currentFrameIndex == 0 {
+            let candidates = isIdle ? idleClips : runClips
+            if let next = candidates.randomElement() {
+                currentClip = next
+            }
+        }
+
         scheduleNextFrame()
     }
 }

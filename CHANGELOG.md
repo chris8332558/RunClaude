@@ -1,5 +1,34 @@
 # RunClaude Changelog
 
+## [2026-03-31] — Reduce animation coast time after token activity stops
+
+### Changed
+- `Engine/TokenUsageEngine.swift`: `windowDuration` default reduced from 45 s to 10 s. The sliding velocity window now drains in ≤ 10 s after the last token arrives, so the running animation stops much sooner after Claude goes idle.
+
+## [2026-03-31] — Add run_two animation variant with sequential leg lift
+
+### Added
+- `SpriteGenerator.swift`: `drawRunFrameTwo(phase:)` on `ClawdPack` — a second forward-facing run animation registered as the `"run_two"` clip. Differences from `drawRunFrame`: arms swing in opposite directions (left arm back while right arm forward), legs lift one at a time via ¼-cycle stagger (`legPhase = phase + i × 0.25`) instead of in alternating pairs, lift height increased to 1.5 px, and eye positions shifted slightly asymmetrically.
+
+### Changed
+- `SpriteGenerator.swift` — `ClawdPack.clips()` updated to expose `"run_two"` as the active run clip (original `"run"` and `"run_angled"` remain in the source but are commented out).
+
+## [2026-03-31] — Multi-clip animation system with 45° angled run variant
+
+### Added
+- `SpriteGenerator.swift`: `AnimationCategory` enum (`.run` / `.idle`) and `AnimationClip` struct (`id`, `category`, `frames`) — the new primitive for naming and categorising animation sequences.
+- `SpriteGenerator.swift`: `drawAngledRunFrame(phase:)` on `ClawdPack` — draws the bean character from a 45-degree angled perspective by rendering the body as a parallelogram (top edge sheared 3 pt right), differentiating near/far arms, and positioning the eye cutouts at the sheared top of the body. Registered as the `"run_angled"` clip.
+- `SpritePack`: `clips() -> [AnimationClip]` protocol requirement with extension defaults in both directions — packs that implement `clips()` get the legacy `generateRunFrames/IdleFrames()` for free; packs that implement the legacy pair get a single-variant `clips()` for free.
+- `SpritePack`: `randomClip(for:)` extension helper — returns a random clip for the given category.
+
+### Changed
+- `SpriteGenerator.swift` — `ClawdPack` now exposes multiple run clips (`"run"`, `"run_angled"`) via `clips()` instead of a flat `generateRunFrames()`. The standard forward-facing run is currently commented out so only the angled variant plays.
+- `SpriteAnimator.swift` — replaced `runFrames`/`idleFrames` flat arrays with `runClips`/`idleClips` clip libraries. `currentClip` tracks the playing clip; at the end of each cycle `advanceFrame()` randomly selects the next clip from the active category, giving natural variety without any jarring mid-clip cuts.
+
+### Decisions
+- **Dual-default extension pattern** — rather than forcing all existing packs to be rewritten, the `SpritePack` extension provides defaults for both the old (`generateRunFrames/IdleFrames`) and new (`clips()`) APIs. A pack only needs to implement one side; Swift's dynamic dispatch resolves the other. This keeps the migration incremental.
+- **Randomise at cycle boundary, not on mode switch** — swapping clips mid-cycle would cause a visual jump. Waiting for `currentFrameIndex` to wrap back to 0 ensures clean boundaries between variants.
+
 ## [2026-03-31] — Fix reset-time parser dropping time token (e.g. "2pm")
 
 ### Fixed

@@ -1,9 +1,12 @@
-# RunClaude
+
+# RunClaude  <img src="images/Icon.png" alt="Icon" width="80">
+
 
 A little Clawd that lives in your Mac's menu bar that helps you track your token usage.
 
 
-<img src="images/Icon.png" alt="Icon" width="100">
+<video src="images/RunClaude Demo.mp4" controls width="80%"></video>
+
 
 ---
 
