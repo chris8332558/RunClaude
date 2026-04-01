@@ -34,6 +34,9 @@ protocol SpritePack {
     var displayName: String { get }
     /// The size of each frame in points.
     var frameSize: NSSize { get }
+    /// Multiplier applied to the frame interval from SpeedMapper (>1 = slower, <1 = faster).
+    /// Default is 1.0 (no change).
+    var frameIntervalScale: Double { get }
     /// All animation clips this pack provides.
     /// Default implementation wraps `generateRunFrames()` / `generateIdleFrames()`.
     func clips() -> [AnimationClip]
@@ -44,6 +47,8 @@ protocol SpritePack {
 }
 
 extension SpritePack {
+    var frameIntervalScale: Double { 1.0 }
+
     // New-style pack: implements clips() → legacy callers work via these defaults.
     func generateRunFrames() -> [NSImage] {
         clips().first { $0.category == .run }?.frames ?? []
@@ -72,10 +77,7 @@ extension SpritePack {
 struct SpritePackRegistry {
     static let allPacks: [SpritePack] = [
         ClawdPack(),
-        // RunningCatPack(),
-        // NyanBarPack(),
-        // GhostPack(),
-        // CustomPack()
+        Clawd2Pack()
     ]
 
     static let defaultPackId = "clawd"
@@ -359,317 +361,33 @@ struct ClawdPack: SpritePack {
     }
 }
 
-// MARK: - Pack 2: Running Cat
+// MARK: - Pack 2: Claude images
 
-/// A small cat silhouette with a wavy tail.
-struct RunningCatPack: SpritePack {
-    let id = "running-cat"
-    let displayName = "Running Cat"
-    let frameSize = NSSize(width: 22, height: 18)
+/// PNG-based sprite pack loaded from the `custom/` resource directory.
+///
+/// To add a new animation, append an entry to `clipDefinitions` below.
+/// Frame files are named "claude1.png", "claude2.png", etc.
+struct Clawd2Pack: SpritePack {
+    let id = "clawd2"
+    let displayName = "Clawd2"
+    let frameSize = NSSize(width: 24, height: 18)
 
-    func generateRunFrames() -> [NSImage] {
-        (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }
-    }
+    /// Adjust this to change playback speed for this pack only.
+    /// >1.0 = slower, <1.0 = faster. Default (1.0) matches SpeedMapper output.
+    let frameIntervalScale: Double = 1.8
 
-    func generateIdleFrames() -> [NSImage] {
-        (0..<6).map { drawIdleFrame(phase: Double($0) / 6.0) }
-    }
+    /// Define all animation clips here.
+    /// Each entry is (clipId, category, frameNumbers).
+    /// Adding a new animation = one new line.
+    private static let clipDefinitions: [(String, AnimationCategory, ClosedRange<Int>)] = [
+        ("idle",  .idle, 1...6),
+        ("run",   .run,  7...18),
+    ]
 
-    private func drawRunFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
-            let groundY: CGFloat = 2.0
-            let bodyY: CGFloat = groundY + 5 + CGFloat(sin(phase * .pi * 2)) * 1.5
-            let bodyLen: CGFloat = 10.0
-            let bodyLeft: CGFloat = 4.0
-            let bodyRight: CGFloat = bodyLeft + bodyLen
-
-            NSColor.black.setFill()
-            NSColor.black.setStroke()
-
-            // Body (oval)
-            let bodyRect = NSRect(x: bodyLeft, y: bodyY, width: bodyLen, height: 5.5)
-            NSBezierPath(ovalIn: bodyRect).fill()
-
-            // Head (circle)
-            let headR: CGFloat = 3.5
-            let headRect = NSRect(x: bodyRight - 2, y: bodyY + 2, width: headR * 2, height: headR * 2)
-            NSBezierPath(ovalIn: headRect).fill()
-
-            // Ears (triangles)
-            for dx: CGFloat in [1.5, 4.5] {
-                let ear = NSBezierPath()
-                ear.move(to: NSPoint(x: bodyRight - 2 + dx, y: bodyY + 2 + headR * 2))
-                ear.line(to: NSPoint(x: bodyRight - 2 + dx - 1, y: bodyY + 2 + headR * 2 + 3))
-                ear.line(to: NSPoint(x: bodyRight - 2 + dx + 1, y: bodyY + 2 + headR * 2 + 3))
-                ear.close()
-                ear.fill()
-            }
-
-            // Legs (4 legs, paired 180° out of phase)
-            let legSwing1 = CGFloat(sin(phase * .pi * 2)) * 3.0
-            let legSwing2 = CGFloat(sin((phase + 0.5) * .pi * 2)) * 3.0
-            let legY = bodyY - 0.5
-
-            for (x, swing) in [(bodyLeft + 2, legSwing1), (bodyLeft + 3.5, legSwing2),
-                                (bodyRight - 3.5, legSwing2), (bodyRight - 2, legSwing1)] {
-                let leg = NSBezierPath()
-                leg.lineWidth = 1.8
-                leg.lineCapStyle = .round
-                leg.move(to: NSPoint(x: x, y: legY))
-                leg.line(to: NSPoint(x: x + swing, y: groundY))
-                leg.stroke()
-            }
-
-            // Tail (curved, waving)
-            let tailWave = CGFloat(sin(phase * .pi * 2 + 1)) * 2.5
-            let tail = NSBezierPath()
-            tail.lineWidth = 1.8
-            tail.lineCapStyle = .round
-            tail.move(to: NSPoint(x: bodyLeft, y: bodyY + 3))
-            tail.curve(
-                to: NSPoint(x: bodyLeft - 5, y: bodyY + 6 + tailWave),
-                controlPoint1: NSPoint(x: bodyLeft - 2, y: bodyY + 2),
-                controlPoint2: NSPoint(x: bodyLeft - 4, y: bodyY + 5 + tailWave * 0.5)
-            )
-            tail.stroke()
-
-            return true
+    func clips() -> [AnimationClip] {
+        Self.clipDefinitions.map { id, category, range in
+            AnimationClip(id: id, category: category, frames: range.compactMap { loadFrame("claude\($0)") })
         }
-        image.isTemplate = true
-        return image
-    }
-
-    private func drawIdleFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
-            let groundY: CGFloat = 2.0
-            let bodyY: CGFloat = groundY + 4
-            let bodyLen: CGFloat = 10.0
-            let bodyLeft: CGFloat = 4.0
-            let bodyRight: CGFloat = bodyLeft + bodyLen
-
-            NSColor.black.setFill()
-            NSColor.black.setStroke()
-
-            // Body (sitting, more upright)
-            let bodyRect = NSRect(x: bodyLeft + 1, y: bodyY, width: bodyLen - 2, height: 6)
-            NSBezierPath(ovalIn: bodyRect).fill()
-
-            // Head
-            let headR: CGFloat = 3.5
-            let headRect = NSRect(x: bodyRight - 3, y: bodyY + 3, width: headR * 2, height: headR * 2)
-            NSBezierPath(ovalIn: headRect).fill()
-
-            // Ears
-            for dx: CGFloat in [1.5, 4.5] {
-                let ear = NSBezierPath()
-                ear.move(to: NSPoint(x: bodyRight - 3 + dx, y: bodyY + 3 + headR * 2))
-                ear.line(to: NSPoint(x: bodyRight - 3 + dx - 1, y: bodyY + 3 + headR * 2 + 3))
-                ear.line(to: NSPoint(x: bodyRight - 3 + dx + 1, y: bodyY + 3 + headR * 2 + 3))
-                ear.close()
-                ear.fill()
-            }
-
-            // Front legs (sitting)
-            for x: CGFloat in [bodyLeft + 3, bodyLeft + 5] {
-                let leg = NSBezierPath()
-                leg.lineWidth = 1.8
-                leg.lineCapStyle = .round
-                leg.move(to: NSPoint(x: x, y: bodyY))
-                leg.line(to: NSPoint(x: x, y: groundY))
-                leg.stroke()
-            }
-
-            // Tail (gentle wave)
-            let tailWave = CGFloat(sin(phase * .pi * 2)) * 1.5
-            let tail = NSBezierPath()
-            tail.lineWidth = 1.8
-            tail.lineCapStyle = .round
-            tail.move(to: NSPoint(x: bodyLeft + 1, y: bodyY + 2))
-            tail.curve(
-                to: NSPoint(x: bodyLeft - 4, y: bodyY + 4 + tailWave),
-                controlPoint1: NSPoint(x: bodyLeft - 1, y: bodyY + 1),
-                controlPoint2: NSPoint(x: bodyLeft - 3, y: bodyY + 3 + tailWave * 0.5)
-            )
-            tail.stroke()
-
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-}
-
-// MARK: - Pack 4: Nyan Bar
-
-/// A simple bouncing bar/wave inspired by audio visualizers.
-struct NyanBarPack: SpritePack {
-    let id = "nyan-bar"
-    let displayName = "Sound Wave"
-    let frameSize = NSSize(width: 20, height: 18)
-
-    func generateRunFrames() -> [NSImage] {
-        (0..<12).map { drawFrame(phase: Double($0) / 12.0, amplitude: 1.0) }
-    }
-
-    func generateIdleFrames() -> [NSImage] {
-        (0..<6).map { drawFrame(phase: Double($0) / 6.0, amplitude: 0.3) }
-    }
-
-    private func drawFrame(phase: Double, amplitude: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { rect in
-            let barCount = 5
-            let barWidth: CGFloat = 2.5
-            let gap: CGFloat = 1.0
-            let totalWidth = CGFloat(barCount) * barWidth + CGFloat(barCount - 1) * gap
-            let startX = (size.width - totalWidth) / 2
-            let baseHeight: CGFloat = 3.0
-            let maxHeight: CGFloat = 14.0
-
-            NSColor.black.setFill()
-
-            for i in 0..<barCount {
-                let barPhase = phase + Double(i) * 0.2
-                let height = baseHeight + (maxHeight - baseHeight) * CGFloat(amplitude) * CGFloat((sin(barPhase * .pi * 2) + 1) / 2)
-                let x = startX + CGFloat(i) * (barWidth + gap)
-                let y = (size.height - height) / 2
-
-                let barRect = NSRect(x: x, y: y, width: barWidth, height: height)
-                NSBezierPath(roundedRect: barRect, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
-            }
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-}
-
-// MARK: - Pack 5: Ghost
-
-/// A cute floating ghost with a rounded head, straight sides, and a 3-bump wavy skirt.
-struct GhostPack: SpritePack {
-    let id = "ghost"
-    let displayName = "Ghost"
-    let frameSize = NSSize(width: 18, height: 18)
-
-    func generateRunFrames() -> [NSImage] {
-        (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }
-    }
-
-    func generateIdleFrames() -> [NSImage] {
-        (0..<6).map { drawIdleFrame(phase: Double($0) / 6.0) }
-    }
-
-    // Draws the ghost body + eyes. bodyBottom is the lowest point of the wavy skirt.
-    private func drawGhostBody(centerX: CGFloat, bodyBottom: CGFloat, tilt: CGFloat = 0, blinking: Bool = false) {
-        let bodyW: CGFloat = 12.0
-        let radius: CGFloat = bodyW / 2       // 6 — radius of the rounded head
-        let sideH: CGFloat = 6.0             // height of the straight-sided torso section
-        let left  = centerX - radius + tilt
-        let right = centerX + radius + tilt
-        let skirtY     = bodyBottom + 2       // where bumps join the body sides
-        let arcCenterY = skirtY + sideH       // centre of the semicircular head
-
-        // --- body + skirt ---
-        NSColor.black.setFill()
-        let ghost = NSBezierPath()
-        ghost.move(to: NSPoint(x: left, y: arcCenterY))
-        // Rounded top: counterclockwise arc from 180° (left) through 90° (top) to 0° (right)
-        ghost.appendArc(
-            withCenter: NSPoint(x: centerX + tilt, y: arcCenterY),
-            radius: radius,
-            startAngle: 180,
-            endAngle: 0,
-            clockwise: false
-        )
-        ghost.line(to: NSPoint(x: right, y: skirtY))
-
-        // Three downward bumps from right to left, each bodyW/3 wide, peaking at bodyBottom
-        let bw = bodyW / 3
-        let peakY = bodyBottom
-        ghost.curve(
-            to: NSPoint(x: right - bw, y: skirtY),
-            controlPoint1: NSPoint(x: right - bw * 0.3, y: peakY),
-            controlPoint2: NSPoint(x: right - bw * 0.7, y: peakY)
-        )
-        ghost.curve(
-            to: NSPoint(x: left + bw, y: skirtY),
-            controlPoint1: NSPoint(x: right - bw * 1.25, y: peakY),
-            controlPoint2: NSPoint(x: left  + bw * 1.25, y: peakY)
-        )
-        ghost.curve(
-            to: NSPoint(x: left, y: skirtY),
-            controlPoint1: NSPoint(x: left + bw * 0.7, y: peakY),
-            controlPoint2: NSPoint(x: left + bw * 0.3, y: peakY)
-        )
-        ghost.close()
-        ghost.fill()
-
-        // --- eyes (white, set against the black body) ---
-        let eyeY = arcCenterY + 1.0
-        NSColor.white.setFill()
-        if blinking {
-            NSColor.white.setStroke()
-            let path = NSBezierPath()
-            path.lineWidth = 1.0
-            path.lineCapStyle = .round
-            path.move(to: NSPoint(x: centerX + tilt - 3.5, y: eyeY))
-            path.line(to: NSPoint(x: centerX + tilt - 1.2, y: eyeY))
-            path.move(to: NSPoint(x: centerX + tilt + 1.2, y: eyeY))
-            path.line(to: NSPoint(x: centerX + tilt + 3.5, y: eyeY))
-            path.stroke()
-        } else {
-            NSBezierPath(ovalIn: NSRect(x: centerX + tilt - 4.0, y: eyeY - 1.2, width: 2.4, height: 2.4)).fill()
-            NSBezierPath(ovalIn: NSRect(x: centerX + tilt + 1.6, y: eyeY - 1.2, width: 2.4, height: 2.4)).fill()
-        }
-    }
-
-    private func drawRunFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { _ in
-            let centerX = size.width / 2
-            let bob  = CGFloat(sin(phase * .pi * 2)) * 1.5
-            let tilt = CGFloat(sin(phase * .pi * 2)) * 0.6
-            self.drawGhostBody(centerX: centerX, bodyBottom: 2.5 + bob, tilt: tilt)
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-
-    private func drawIdleFrame(phase: Double) -> NSImage {
-        let size = frameSize
-        let image = NSImage(size: size, flipped: false) { _ in
-            let centerX = size.width / 2
-            let bob = CGFloat(sin(phase * .pi * 2)) * 0.8
-            let isBlinking = abs(phase - 0.85) < 0.08
-            self.drawGhostBody(centerX: centerX, bodyBottom: 3.0 + bob, blinking: isBlinking)
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-}
-
-// MARK: - Pack 6: Custom images
-
-/// A witch-on-broomstick character loaded from PNG sprite sheet frames.
-/// Source images: B_witch_1…6.png (111×48 px RGBA), scaled to fit the menu bar.
-struct CustomPack: SpritePack {
-    let id = "custom"
-    let displayName = "Custom"
-    // Maintain 111:48 aspect ratio at 18 pt height → ~42×18 pt
-    let frameSize = NSSize(width: 4, height: 4)
-
-    func generateRunFrames() -> [NSImage] {
-        (0...2).compactMap { loadFrame("custom_\($0)") }
-    }
-
-    func generateIdleFrames() -> [NSImage] {
-        // Gentle hover: alternate first two frames
-        [1, 2, 1, 2, 1, 2].compactMap { loadFrame("custom_\($0)") }
     }
 
     private func loadFrame(_ name: String) -> NSImage? {

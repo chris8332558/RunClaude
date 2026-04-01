@@ -1,5 +1,21 @@
 # RunClaude Changelog
 
+## [2026-04-01] — CustomPack PNG animation with per-pack speed control
+
+### Added
+- `SpriteGenerator.swift`: `frameIntervalScale: Double` property on `SpritePack` protocol — a multiplier applied to the frame interval produced by `SpeedMapper`. Default is `1.0` (no change); values >1 slow the animation down, <1 speed it up. All existing packs inherit the default via the protocol extension and are unaffected.
+- `SpriteGenerator.swift`: `CustomPack.clipDefinitions` — a static array of `(clipId, category, frameRange)` tuples that drives `clips()`. Adding a new PNG animation sequence is a single line in this array.
+- `SpriteAnimator.swift`: `frameIntervalScale` stored on the animator, read from the active pack on `init` and updated in `switchPack(_:)`. Applied in `update(interval:idle:)` as `targetInterval = interval * frameIntervalScale`.
+
+### Changed
+- `SpriteGenerator.swift`: `CustomPack` migrated from legacy `generateRunFrames()`/`generateIdleFrames()` to the new-style `clips()` API, enabling future random clip selection between multiple run or idle variants at cycle boundaries (already supported by `SpriteAnimator`).
+- `SpriteGenerator.swift`: `CustomPack` frame mapping updated — frames `claude1–6` → `"idle"` clip, `claude7–18` → `"run"` clip.
+- `SpriteGenerator.swift`: `CustomPack.frameIntervalScale` set to `1.8` (runs ~80% slower than the default Clawd pack).
+
+### Decisions
+- **`frameIntervalScale` lives on `SpritePack`**, not on `SpeedMapper`, so each pack can opt into its own speed feel without touching the global velocity-to-interval curve. The animator multiplies after `SpeedMapper` computes the interval, keeping the two concerns separate.
+- **Speed is adjusted in one place**: `CustomPack.frameIntervalScale` in `SpriteGenerator.swift`. Change `1.8` to tune: `1.0` = same as Clawd, `2.0` = half speed, `0.5` = double speed.
+
 ## [2026-03-31] — Reduce animation coast time after token activity stops
 
 ### Changed

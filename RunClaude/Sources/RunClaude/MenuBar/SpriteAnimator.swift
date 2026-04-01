@@ -48,6 +48,9 @@ final class SpriteAnimator {
     /// The current sprite pack ID for change detection.
     private var currentPackId: String
 
+    /// Frame interval multiplier from the active pack.
+    private var frameIntervalScale: Double
+
     // MARK: - Init
 
     init(pack: SpritePack? = nil) {
@@ -56,6 +59,7 @@ final class SpriteAnimator {
         self.runClips  = all.filter { $0.category == .run }
         self.idleClips = all.filter { $0.category == .idle }
         self.currentPackId = p.id
+        self.frameIntervalScale = p.frameIntervalScale
         self.currentClip = idleClips.randomElement() ?? runClips[0]
     }
 
@@ -75,7 +79,7 @@ final class SpriteAnimator {
     /// Update the animation speed and mode.
     /// Call this whenever the token velocity changes.
     func update(interval: TimeInterval, idle: Bool) {
-        targetInterval = interval
+        targetInterval = interval * frameIntervalScale
 
         // Switch clip library if mode changed; pick a fresh random clip.
         if idle != isIdle {
@@ -92,6 +96,7 @@ final class SpriteAnimator {
     func switchPack(_ pack: SpritePack) {
         guard pack.id != currentPackId else { return }
         currentPackId = pack.id
+        frameIntervalScale = pack.frameIntervalScale
         let all = pack.clips()
         runClips  = all.filter { $0.category == .run }
         idleClips = all.filter { $0.category == .idle }
