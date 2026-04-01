@@ -100,9 +100,9 @@ struct ClawdPack: SpritePack {
 
     func clips() -> [AnimationClip] {
         [
-            // AnimationClip(id: "run",
-            //               category: .run,
-            //               frames: (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }),
+            AnimationClip(id: "run",
+                          category: .run,
+                          frames: (0..<8).map { drawRunFrame(phase: Double($0) / 8.0) }),
             AnimationClip(id: "run_two",
                           category: .run,
                           frames: (0..<8).map { drawRunFrameTwo(phase: Double($0) / 8.0) }),

@@ -23,7 +23,7 @@ final class TokenUsageEngine: ObservableObject {
 
     // MARK: - Init
 
-    init(scanInterval: TimeInterval = 2.0, windowDuration: TimeInterval = 10.0) {
+    init(scanInterval: TimeInterval = 2.0, windowDuration: TimeInterval = 20.0) {
         self.watcher = LogFileWatcher(scanInterval: scanInterval)
         self.aggregator = TokenAggregator(windowDuration: windowDuration)
 
