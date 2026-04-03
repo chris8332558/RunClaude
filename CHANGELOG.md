@@ -1,5 +1,13 @@
 # RunClaude Changelog
 
+## [2026-04-03] — Fix Usage Limit fetch returning no data
+
+### Fixed
+- `Engine/RateLimitFetcher.swift`: `parse()` now uses fuzzy regex patterns instead of exact string matching for "Current session", "Current week", and the "Resets…" line. The Claude CLI uses cursor-forward ANSI sequences (`ESC[NC`) as spacing during terminal differential redraws; stripping these as escape codes (rather than replacing them with spaces) concatenates words — `"Current session"` → `"Curretsession"`, `"Resets 12:59pm"` → `"Reses12:59pm"` — so the old exact-match patterns never fired and `parse()` always returned `nil`.
+
+### Decisions
+- **Fuzzy regex over a full terminal emulator**: replacing `ESC[NC` cursor-forward codes with N spaces would require a stateful VT100 emulator to handle differential redraws correctly. Loosening the three match patterns (`Curren.{0,3}session`, `Curren.{0,3}week`, `^Rese\w*` without trailing `\s`) is a minimal, targeted fix that covers the observed garbling without adding complexity.
+
 ## [2026-04-01] — CustomPack PNG animation with per-pack speed control
 
 ### Added

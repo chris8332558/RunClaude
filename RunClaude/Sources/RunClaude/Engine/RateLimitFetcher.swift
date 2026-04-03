@@ -362,13 +362,16 @@ final class RateLimitFetcher: ObservableObject {
         var pendingPct: Int?
 
         for line in lines {
-            if line.contains("Current session") {
+            // Use fuzzy matching: cursor-forward ANSI codes (used as spacing in terminal
+            // differential redraws) are stripped as escape sequences rather than replaced
+            // with spaces, so words like "Current session" arrive as "Curretsession".
+            if line.range(of: #"Curren.{0,3}session"#, options: .regularExpression) != nil {
                 context = "session"; pendingPct = nil
-            } else if line.contains("Current week") {
+            } else if line.range(of: #"Curren.{0,3}week"#, options: .regularExpression) != nil {
                 context = "week";    pendingPct = nil
             } else if let pct = extractPercentage(from: line) {
                 pendingPct = pct
-            } else if line.range(of: #"^Rese\w*\s"#, options: .regularExpression) != nil,
+            } else if line.range(of: #"^Rese\w*"#, options: .regularExpression) != nil,
                       let pct = pendingPct, let ctx = context {
                 // Strip the leading "Resets"/"Reses" word (may be garbled by PTY \r overwrites,
                 // merging the word with the next token e.g. "Reses2pm"). Match only the letter
