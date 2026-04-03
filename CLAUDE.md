@@ -13,3 +13,14 @@ When the user asks to log changes into `CHANGELOG.md`:
 4. Each bullet should name the **file or artifact** first, then a concise description of what changed and why
 5. The `### Decisions` block is mandatory when a non-trivial design choice was made — explain *why*, not just *what*
 6. Never overwrite or delete existing entries
+
+
+## Build and Run command
+```bash
+./Scripts/make-app.sh && open build/RunClaude.app
+```
+
+## Fetching Usage Limit logging
+```bash
+vim -f /tmp/runclaude-ratelimit.log
+```

@@ -179,7 +179,13 @@ final class RateLimitFetcher: ObservableObject {
         }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudePath)
+        // Spawn via login shell so the full user environment (PATH, NODE_PATH, etc.)
+        // is loaded. This matters when launched from Xcode, which inherits a stripped
+        // env that can prevent the claude CLI from starting properly and causes the
+        // waitFor() call to hit its 10-second timeout. `exec` replaces zsh with
+        // claude so Process tracking (isRunning, terminate) still targets claude.
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments     = ["-l", "-c", "exec \"\(claudePath)\""]
         process.environment   = ProcessInfo.processInfo.environment
 
         let trustedDir = Self.findTrustedDirectory()
