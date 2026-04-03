@@ -3,10 +3,12 @@
 ## [2026-04-03] — Fix Usage Limit fetch returning no data
 
 ### Fixed
-- `Engine/RateLimitFetcher.swift`: `parse()` now uses fuzzy regex patterns instead of exact string matching for "Current session", "Current week", and the "Resets…" line. The Claude CLI uses cursor-forward ANSI sequences (`ESC[NC`) as spacing during terminal differential redraws; stripping these as escape codes (rather than replacing them with spaces) concatenates words — `"Current session"` → `"Curretsession"`, `"Resets 12:59pm"` → `"Reses12:59pm"` — so the old exact-match patterns never fired and `parse()` always returned `nil`.
+- `Engine/RateLimitFetcher.swift`: ANSI stripping now replaces cursor-forward sequences (`ESC[NC`) with a space before removing other escape codes. The Claude CLI performs differential terminal redraws using `ESC[NC` to skip characters already on screen; stripping them as plain escape codes dropped those characters entirely — `"Current session"` → `"Curretsession"` — so context detection never fired and `parse()` always returned `nil`.
+- `Engine/RateLimitFetcher.swift`: Context detection for "session" and "week" simplified to `line.contains(...)` now that word boundaries are preserved by the space substitution.
+- `Engine/RateLimitFetcher.swift`: `^Rese\w*\s` match pattern relaxed to `^Rese\w*` (no required trailing whitespace) to tolerate `"Reses1pm"` where the space after the label was itself a cursor-forward skip.
 
 ### Decisions
-- **Fuzzy regex over a full terminal emulator**: replacing `ESC[NC` cursor-forward codes with N spaces would require a stateful VT100 emulator to handle differential redraws correctly. Loosening the three match patterns (`Curren.{0,3}session`, `Curren.{0,3}week`, `^Rese\w*` without trailing `\s`) is a minimal, targeted fix that covers the observed garbling without adding complexity.
+- **Replace `ESC[NC` with a single space, not N spaces**: strictly correct substitution would insert N space characters, but a single space is sufficient since lines are trimmed before matching and only word separation matters, not column-accurate reconstruction.
 
 ## [2026-04-01] — CustomPack PNG animation with per-pack speed control
 

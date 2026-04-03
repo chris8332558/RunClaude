@@ -335,7 +335,17 @@ final class RateLimitFetcher: ObservableObject {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
 
-        // Strip ANSI/VT escape sequences:
+        // The Claude CLI does differential terminal redraws using cursor-forward sequences
+        // (ESC[NC) as stand-ins for characters already on screen. Stripping them as plain
+        // escape codes drops those characters entirely ("Current session" → "Curretsession").
+        // Replace them with a space first so word boundaries are preserved.
+        let cursorFwdReplaced = normalized.replacingOccurrences(
+            of: "\u{1B}\\[[0-9]+C",
+            with: " ",
+            options: .regularExpression
+        )
+
+        // Strip remaining ANSI/VT escape sequences:
         //   \e[...m       — SGR colour/style
         //   \e[?...h/l    — DEC private mode (e.g. ?2004h bracketed paste)
         //   \e]...BEL/ST  — OSC (hyperlinks, etc.)
@@ -345,10 +355,10 @@ final class RateLimitFetcher: ObservableObject {
             options: []
         )
         let cleaned = ansiRegex?.stringByReplacingMatches(
-            in: normalized,
-            range: NSRange(normalized.startIndex..., in: normalized),
+            in: cursorFwdReplaced,
+            range: NSRange(cursorFwdReplaced.startIndex..., in: cursorFwdReplaced),
             withTemplate: ""
-        ) ?? normalized
+        ) ?? cursorFwdReplaced
 
         let lines = cleaned.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -362,12 +372,9 @@ final class RateLimitFetcher: ObservableObject {
         var pendingPct: Int?
 
         for line in lines {
-            // Use fuzzy matching: cursor-forward ANSI codes (used as spacing in terminal
-            // differential redraws) are stripped as escape sequences rather than replaced
-            // with spaces, so words like "Current session" arrive as "Curretsession".
-            if line.range(of: #"Curren.{0,3}session"#, options: .regularExpression) != nil {
+            if line.contains("session") {
                 context = "session"; pendingPct = nil
-            } else if line.range(of: #"Curren.{0,3}week"#, options: .regularExpression) != nil {
+            } else if line.contains("week") {
                 context = "week";    pendingPct = nil
             } else if let pct = extractPercentage(from: line) {
                 pendingPct = pct
