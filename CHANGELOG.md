@@ -1,5 +1,17 @@
 # RunClaude Changelog
 
+## [2026-04-03] — Persistent PTY for fast rate-limit fetching
+
+### Changed
+- `Engine/RateLimitFetcher.swift`: The `claude` process is now kept alive between refreshes instead of being respawned on every fetch. `runClaudeUsage(claudePath:)` was split into `startPersistentProcess(claudePath:)` (spawn once, wait for initial REPL prompt) and `fetchUsage(master:)` (drain stale output, send `/usage\r`, read until panel renders, dismiss with ESC). Subsequent fetches drop from ~10 s to ~1 s because Node.js startup is paid only once.
+- `Engine/RateLimitFetcher.swift`: The rate-limit fetch now fires automatically at app launch (via `MenuBarController.setup()`) so data is ready before the popover is first opened.
+- `MenuBar/MenuBarController.swift`: Now owns the `RateLimitFetcher` instance (moved out of the SwiftUI view) and calls `refresh()` during `setup()`. Marked `@MainActor` since it was always main-thread-only.
+- `Views/UsagePopoverView.swift`: `RateLimitFetcher` property changed from `@StateObject` (self-owned) to `@ObservedObject` (injected from `MenuBarController`).
+
+### Decisions
+- **`nonisolated(unsafe)` for `persistentMaster`/`persistentProcess`**: `deinit` is not actor-isolated in Swift 5.9, so these properties need `nonisolated(unsafe)` to be accessible for cleanup. Access is safe because `refresh()` serializes mutations via the `isLoading` guard.
+- **Fixed 0.3 s sleep instead of waiting for `> ` prompt after ESC**: The REPL redraws the screen with ANSI codes after ESC, making prompt detection unreliable. A short sleep is sufficient since the next call's drain step clears any leftover output anyway.
+
 ## [2026-04-03] — Fix Usage Limit fetch returning no data
 
 ### Fixed

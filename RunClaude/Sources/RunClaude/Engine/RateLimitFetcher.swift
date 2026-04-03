@@ -39,8 +39,8 @@ struct RateLimitInfo: Sendable {
 
 // MARK: - Fetcher
 
-/// Spawns `claude` in a pseudo-terminal, sends the `/usage` command, and
-/// parses the resulting rate-limit output.
+/// Spawns `claude` in a pseudo-terminal once, keeps it alive, and sends
+/// `/usage` on each refresh instead of restarting the process every time.
 @MainActor
 final class RateLimitFetcher: ObservableObject {
     @Published private(set) var info: RateLimitInfo?
@@ -49,6 +49,23 @@ final class RateLimitFetcher: ObservableObject {
 
     /// Results are cached for this many seconds; `refresh(force:)` with `force: true` bypasses it.
     static let cacheMaxAge: TimeInterval = 5 * 60
+
+    // Persistent PTY state.
+    // nonisolated(unsafe) is required because deinit is not actor-isolated in Swift 5.9.
+    // These are only mutated from within the @MainActor Task in refresh(), which is
+    // serialized by the isLoading guard, so access is safe.
+    nonisolated(unsafe) private var persistentMaster: Int32 = -1
+    nonisolated(unsafe) private var persistentProcess: Process?
+
+    deinit {
+        if let process = persistentProcess, process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        if persistentMaster != -1 {
+            close(persistentMaster)
+        }
+    }
 
     // MARK: - Public API
 
@@ -68,7 +85,6 @@ final class RateLimitFetcher: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        // Task inherits @MainActor; calling nonisolated async helpers hops off-actor
         Task {
             do {
                 guard let claudePath = Self.findClaude() else {
@@ -76,7 +92,19 @@ final class RateLimitFetcher: ObservableObject {
                     self.errorMessage = "claude not found"
                     return
                 }
-                let raw  = try await Self.runClaudeUsage(claudePath: claudePath)
+
+                // (Re)start the persistent process if it isn't running.
+                if persistentProcess == nil || !persistentProcess!.isRunning {
+                    if persistentMaster != -1 {
+                        close(persistentMaster)
+                        persistentMaster = -1
+                    }
+                    let (proc, master) = try await Self.startPersistentProcess(claudePath: claudePath)
+                    persistentProcess = proc
+                    persistentMaster = master
+                }
+
+                let raw    = try await Self.fetchUsage(master: persistentMaster)
                 let parsed = Self.parse(raw)
                 self.info = parsed
                 self.isLoading = false
@@ -104,7 +132,7 @@ final class RateLimitFetcher: ObservableObject {
         }
     }
 
-    // MARK: - Subprocess
+    // MARK: - Process discovery
 
     /// Returns the full path of the `claude` executable, checking common locations.
     nonisolated static func findClaude() -> String? {
@@ -130,7 +158,7 @@ final class RateLimitFetcher: ObservableObject {
 
         for (path, value) in projects {
             guard
-                let proj  = value as? [String: Any],
+                let proj     = value as? [String: Any],
                 let accepted = proj["hasTrustDialogAccepted"] as? Bool, accepted,
                 FileManager.default.fileExists(atPath: path)
             else { continue }
@@ -139,99 +167,20 @@ final class RateLimitFetcher: ObservableObject {
         return NSHomeDirectory()
     }
 
-    /// Spawns claude in a PTY, sends `/usage`, and returns the raw terminal output.
-    // nonisolated private static func runClaudeUsage(claudePath: String) async throws -> String {
-    //     var master: Int32 = -1
-    //     var slave: Int32 = -1
-    //     guard openpty(&master, &slave, nil, nil, nil) == 0 else {
-    //         throw RateLimitError.ptyFailed
-    //     }
+    // MARK: - Persistent PTY lifecycle
 
-    //     let process = Process()
-    //     process.executableURL = URL(fileURLWithPath: claudePath)
-    //     process.environment = ProcessInfo.processInfo.environment
-    //     // Run from home so claude doesn't show the "trust this folder" prompt
-    //     // for an unfamiliar working directory
-    //     let trustedDir = Self.findTrustedDirectory()
-    //     debugLog("[RateLimitFetcher] using trusted dir: \(trustedDir)")
-    //     process.currentDirectoryURL = URL(fileURLWithPath: trustedDir)
-
-    //     let slaveHandle = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
-    //     process.standardInput  = slaveHandle
-    //     process.standardOutput = slaveHandle
-    //     process.standardError  =
-    //         FileHandle(forWritingAtPath: "/dev/null") ?? FileHandle.standardError
-
-    //     try process.run()
-    //     close(slave)  // parent no longer needs the slave end
-
-    //     defer {
-    //         close(master)
-    //         if process.isRunning { process.terminate() }
-    //         process.waitUntilExit()
-    //     }
-
-    //     // Set master to non-blocking so read() never hangs
-    //     let flags = fcntl(master, F_GETFL)
-    //     _ = fcntl(master, F_SETFL, flags | O_NONBLOCK)
-
-    //     // Wait for claude to start (no trust dialog since we're in a trusted dir)
-    //     try await Task.sleep(nanoseconds: 3_500_000_000)
-
-    //     // Drain and discard everything buffered so far (welcome/REPL prompt).
-    //     // This ensures the read loop below only captures fresh /usage output.
-    //     var drain = [UInt8](repeating: 0, count: 4096)
-    //     while read(master, &drain, 4096) > 0 {}
-
-    //     debugLog("[RateLimitFetcher] buffer drained, sending /usage")
-
-    //     // Send the slash command
-    //     _ = "/usage\n".withCString { ptr in write(master, ptr, strlen(ptr)) }
-    //     try await Task.sleep(nanoseconds: 500_000_000)   // let autocomplete handle first \r
-    //     _ = "\n".withCString { ptr in write(master, ptr, strlen(ptr)) }
-
-    //     // Collect output until it settles (2.5 s quiet) or the hard limit (10 s)
-    //     var outputData = Data()
-    //     let hardDeadline = Date().addingTimeInterval(10.0)
-    //     var lastReadDate  = Date()
-
-    //     while Date() < hardDeadline {
-    //         var buf = [UInt8](repeating: 0, count: 4096)
-    //         let n = read(master, &buf, 4096)
-
-    //         if n > 0 {
-    //             outputData.append(contentsOf: buf.prefix(n))
-    //             lastReadDate = Date()
-    //         } else if n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-    //             if outputData.count > 50 && Date().timeIntervalSince(lastReadDate) > 2.5 {
-    //                 break  // output has settled
-    //             }
-    //             try await Task.sleep(nanoseconds: 100_000_000)  // 0.1 s poll interval
-    //         } else {
-    //             break  // EOF or unrecoverable error
-    //         }
-    //     }
-
-    //     let raw = String(data: outputData, encoding: .utf8)
-    //         ?? String(data: outputData, encoding: .isoLatin1)
-    //         ?? ""
-
-    //     debugLog("[RateLimitFetcher] raw output (\(outputData.count) bytes):\n\(raw)\n---end raw---")
-
-    //     return raw
-    // }
-
-    nonisolated private static func runClaudeUsage(claudePath: String) async throws -> String {
+    /// Spawns `claude` in a PTY, waits for the initial REPL prompt, and returns
+    /// the persistent (Process, master fd) pair.  The caller owns cleanup.
+    nonisolated private static func startPersistentProcess(claudePath: String) async throws -> (Process, Int32) {
         var master: Int32 = -1
         var slave: Int32 = -1
-        
         guard openpty(&master, &slave, nil, nil, nil) == 0 else {
             throw RateLimitError.ptyFailed
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudePath)
-        process.environment = ProcessInfo.processInfo.environment
+        process.environment   = ProcessInfo.processInfo.environment
 
         let trustedDir = Self.findTrustedDirectory()
         debugLog("[RateLimitFetcher] using trusted dir: \(trustedDir)")
@@ -240,81 +189,49 @@ final class RateLimitFetcher: ObservableObject {
         let slaveHandle = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
         process.standardInput  = slaveHandle
         process.standardOutput = slaveHandle
-        process.standardError  = slaveHandle  // <-- capture errors too
+        process.standardError  = slaveHandle
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            close(master)
+            close(slave)
+            throw error
+        }
         close(slave)
 
-        defer {
-            close(master)
-            if process.isRunning { process.terminate() }
-            process.waitUntilExit()
-        }
-
-        // Set non-blocking
         let flags = fcntl(master, F_GETFL)
         guard flags != -1 else {
+            close(master)
+            process.terminate()
             throw RateLimitError.ptyFailed
         }
         _ = fcntl(master, F_SETFL, flags | O_NONBLOCK)
 
-        // MARK: - Helpers
-
-        func readAvailable(into data: inout Data) {
-            var buf = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let n = read(master, &buf, buf.count)
-                if n > 0 {
-                    data.append(contentsOf: buf.prefix(n))
-                } else if n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    break
-                } else {
-                    break
-                }
-            }
-        }
-
-        /// Polls until the buffer contains a stop condition or the timeout expires.
-        /// - `promptReady`: `\n> ` / trailing `> ` — REPL is waiting for input
-        /// - `earlyExit`: caller-supplied predicate for content-based early exit
-        func waitFor(buffer: inout Data, timeout: TimeInterval = 10,
-                     earlyExit: (String) -> Bool = { _ in false }) async throws {
-            let deadline = Date().addingTimeInterval(timeout)
-
-            while Date() < deadline {
-                readAvailable(into: &buffer)
-
-                if let str = String(data: buffer, encoding: .utf8) {
-                    if str.contains("\n> ") || str.hasSuffix("> ") { return }
-                    if earlyExit(str) { return }
-                }
-
-                try await Task.sleep(nanoseconds: 100_000_000) // 0.1s
-            }
-        }
-
-        // MARK: - 1. Wait for initial prompt
-
+        // Wait for the REPL prompt before returning.
         var buffer = Data()
-        try await waitFor(buffer: &buffer)
+        try await waitFor(master: master, buffer: &buffer)
+        debugLog("[RateLimitFetcher] persistent process ready, prompt detected")
 
-        debugLog("[RateLimitFetcher] initial prompt detected")
+        return (process, master)
+    }
 
-        // MARK: - 2. Send command
+    /// Sends `/usage` to the already-running REPL and returns the raw terminal output.
+    nonisolated private static func fetchUsage(master: Int32) async throws -> String {
+        // Drain any stale output so we only capture the fresh /usage response.
+        var discard = Data()
+        readAvailable(master: master, into: &discard)
 
-        buffer.removeAll(keepingCapacity: true)
-
+        // Send the slash command.
+        var buffer = Data()
         let cmd = "/usage\r"
         _ = cmd.withCString { write(master, $0, strlen($0)) }
 
-        // MARK: - 3. Read until usage data is present
         // "Esc to cancel" is the last line claude renders in the /usage panel,
         // appearing before the trailing "> " prompt. Stopping here avoids waiting
         // for the REPL to redraw its input line, which saves ~0.5–1 s.
-
-        try await waitFor(buffer: &buffer, earlyExit: { $0.contains("Esc to cancel") })
-
-        // MARK: - 4. Convert output
+        try await waitFor(master: master, buffer: &buffer,
+                          earlyExit: { $0.contains("Esc to cancel") })
 
         let raw = String(data: buffer, encoding: .utf8)
             ?? String(data: buffer, encoding: .isoLatin1)
@@ -322,7 +239,48 @@ final class RateLimitFetcher: ObservableObject {
 
         debugLog("[RateLimitFetcher] raw output (\(buffer.count) bytes):\n\(raw)\n---end raw---")
 
+        // Dismiss the usage panel. A short pause lets the REPL process ESC and redraw
+        // before the next call's drain step clears the leftover output.
+        let esc = "\u{1B}"
+        _ = esc.withCString { write(master, $0, strlen($0)) }
+        try await Task.sleep(nanoseconds: 300_000_000) // 0.3 s
+
         return raw
+    }
+
+    // MARK: - PTY helpers
+
+    nonisolated private static func readAvailable(master: Int32, into data: inout Data) {
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let n = read(master, &buf, buf.count)
+            if n > 0 {
+                data.append(contentsOf: buf.prefix(n))
+            } else {
+                break
+            }
+        }
+    }
+
+    /// Polls until the buffer contains a REPL prompt or `earlyExit` returns true.
+    nonisolated private static func waitFor(
+        master: Int32,
+        buffer: inout Data,
+        timeout: TimeInterval = 10,
+        earlyExit: (String) -> Bool = { _ in false }
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            readAvailable(master: master, into: &buffer)
+
+            if let str = String(data: buffer, encoding: .utf8) {
+                if str.contains("\n> ") || str.hasSuffix("> ") { return }
+                if earlyExit(str) { return }
+            }
+
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 s
+        }
     }
 
     // MARK: - Parsing

@@ -14,19 +14,13 @@ https://github.com/user-attachments/assets/1888f406-ad95-4be4-b69c-900cb1193d11
 
 ---
 
-## How to run
+## Download
 
-1. Build
+Get the latest release from the [Releases page](https://github.com/chris8332558/RunClaude/releases).
 
-```bash
-cd RunClaude && ./Scripts/make-app.sh
-```
-
-2. Run the app
-
-```bash
-open build/RunClaude.app   
-```
+1. Download `RunClaude-v1.0.0.zip` and unzip it
+2. Move `RunClaude.app` to `/Applications`
+3. **First launch:** macOS will block the app since it is not notarized. Right-click → **Open** → **Open Anyway** to run it
 
 ---
 

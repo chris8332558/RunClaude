@@ -7,8 +7,8 @@ import Charts
 /// Features a tab bar to switch between Today, Week, and Month views.
 struct UsagePopoverView: View {
     @ObservedObject var engine: TokenUsageEngine
+    @ObservedObject var rateLimitFetcher: RateLimitFetcher
     @State private var selectedTab: PopoverTab = .live
-    @StateObject private var rateLimitFetcher = RateLimitFetcher()
 
     enum PopoverTab: String, CaseIterable {
         case live = "Live"

@@ -8,12 +8,14 @@ import Combine
 ///
 /// This is the primary UI controller. It observes the TokenUsageEngine
 /// and translates token velocity into animation speed.
+@MainActor
 final class MenuBarController {
 
     private var statusItem: NSStatusItem?
     private let animator: SpriteAnimator
     private let speedMapper: SpeedMapper
     private let engine: TokenUsageEngine
+    private let rateLimitFetcher = RateLimitFetcher()
     private var popover: NSPopover?
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
@@ -73,6 +75,9 @@ final class MenuBarController {
 
         // Start the engine
         engine.start()
+
+        // Kick off the first rate-limit fetch so data is ready before the popover opens.
+        rateLimitFetcher.refresh()
     }
 
     // MARK: - Animation Update
@@ -127,7 +132,7 @@ final class MenuBarController {
             p.behavior = .transient
             p.animates = true
             p.contentViewController = NSHostingController(
-                rootView: UsagePopoverView(engine: engine)
+                rootView: UsagePopoverView(engine: engine, rateLimitFetcher: rateLimitFetcher)
             )
             self.popover = p
         }
