@@ -18,9 +18,15 @@ https://github.com/user-attachments/assets/1888f406-ad95-4be4-b69c-900cb1193d11
 
 Get the latest release from the [Releases page](https://github.com/chris8332558/RunClaude/releases).
 
-1. Download `RunClaude-v1.0.0.zip` and unzip it
+1. Download the last release (e.g. `RunClaude-v1.0.0.zip`) and unzip it
 2. Move `RunClaude.app` to `/Applications`
-3. **First launch:** macOS will block the app since it is not notarized. Right-click → **Open** → **Open Anyway** to run it
+3. **First launch:** macOS will block the app since it is not notarized. Follow these steps when you first run it: 
+    
+    1. **Click the app (RunClaude.app)** 
+    2. **Click "?" and "Done"**
+    3. **Click "Open Privacy & Security settings for me"** → **Scroll down and click the "Run Anyway" (Need to click the Done in the first popup window first)**
+    4. **click the "Run Anyway"**
+    5. The clawd pops up in your menu bar.
 
 ---
 
