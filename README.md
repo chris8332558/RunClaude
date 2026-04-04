@@ -28,6 +28,21 @@ Get the latest release from the [Releases page](https://github.com/chris8332558/
     4. **click the "Run Anyway"**
     5. The clawd pops up in your menu bar.
 
+
+Install Guidance Videos:
+
+1. Download the app
+https://github.com/user-attachments/assets/8e29a94e-9b9e-408d-8780-79c7e64da5e0
+
+
+  
+
+2. Open it
+https://github.com/user-attachments/assets/8484299c-55f0-4e15-85ff-ad8eca459df1
+
+
+
+
 ---
 
 ## Screenshots
