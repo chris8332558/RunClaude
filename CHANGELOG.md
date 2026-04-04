@@ -1,5 +1,15 @@
 # RunClaude Changelog
 
+## [2026-04-03] — Fix standalone app 10s usage-limit fetch
+
+### Fixed
+- `Engine/RateLimitFetcher.swift`: The `/usage` earlyExit was triggering on `"Esc to cancel"` from the loading spinner, before actual usage data had arrived. Changed to wait for `"used"` so the fetch only completes once real percentages are rendered.
+- `Engine/RateLimitFetcher.swift`: Removed explicit `process.environment` override so `/bin/zsh -l` login shell can construct the full user environment from scratch, fixing the 10s timeout when the app is launched outside a terminal (e.g. from /Applications via Finder).
+- `Engine/RateLimitFetcher.swift`: Added startup buffer logging to aid future debugging of PTY prompt detection.
+
+### Decisions
+- **`"used"` instead of `"Esc to cancel"` for earlyExit**: The `/usage` panel renders "Esc to cancel" twice — once during the loading spinner and again after the data loads. Keying on `"used"` (from "N% used") ensures we only stop after real data is present.
+
 ## [2026-04-03] — Persistent PTY for fast rate-limit fetching
 
 ### Changed

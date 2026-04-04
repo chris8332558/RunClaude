@@ -186,7 +186,6 @@ final class RateLimitFetcher: ObservableObject {
         // claude so Process tracking (isRunning, terminate) still targets claude.
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments     = ["-l", "-c", "exec \"\(claudePath)\""]
-        process.environment   = ProcessInfo.processInfo.environment
 
         let trustedDir = Self.findTrustedDirectory()
         debugLog("[RateLimitFetcher] using trusted dir: \(trustedDir)")
@@ -217,6 +216,9 @@ final class RateLimitFetcher: ObservableObject {
         // Wait for the REPL prompt before returning.
         var buffer = Data()
         try await waitFor(master: master, buffer: &buffer)
+        let startupRaw = String(data: buffer, encoding: .utf8)
+            ?? String(data: buffer, encoding: .isoLatin1) ?? ""
+        debugLog("[RateLimitFetcher] startup buffer (\(buffer.count) bytes):\n\(startupRaw)\n---end startup---")
         debugLog("[RateLimitFetcher] persistent process ready, prompt detected")
 
         return (process, master)
@@ -233,11 +235,11 @@ final class RateLimitFetcher: ObservableObject {
         let cmd = "/usage\r"
         _ = cmd.withCString { write(master, $0, strlen($0)) }
 
-        // "Esc to cancel" is the last line claude renders in the /usage panel,
-        // appearing before the trailing "> " prompt. Stopping here avoids waiting
-        // for the REPL to redraw its input line, which saves ~0.5–1 s.
+        // The /usage panel first shows a "Loading usage data… / Esc to cancel"
+        // spinner, then redraws with the actual percentages.  Wait until real
+        // data has arrived ("% used" appears) before stopping.
         try await waitFor(master: master, buffer: &buffer,
-                          earlyExit: { $0.contains("Esc to cancel") })
+                          earlyExit: { $0.contains("used") })
 
         let raw = String(data: buffer, encoding: .utf8)
             ?? String(data: buffer, encoding: .isoLatin1)
@@ -281,6 +283,10 @@ final class RateLimitFetcher: ObservableObject {
             readAvailable(master: master, into: &buffer)
 
             if let str = String(data: buffer, encoding: .utf8) {
+                // Claude REPL uses "❯" (U+276F) as its prompt character,
+                // often preceded by ANSI escape codes rather than a clean newline.
+                // if str.contains("❯") ||
+                //    str.contains("\n> ") || str.hasSuffix("> ") { return }
                 if str.contains("\n> ") || str.hasSuffix("> ") { return }
                 if earlyExit(str) { return }
             }
