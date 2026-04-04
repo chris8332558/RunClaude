@@ -1,6 +1,7 @@
 
 # RunClaude  <img src="images/Icon.png" alt="Icon" width="80">
 
+[![GitHub downloads](https://img.shields.io/github/downloads/chris8332558/RunClaude/total)](https://github.com/chris8332558/RunClaude/releases)
 
 A little Clawd that lives in your Mac's menu bar that helps you track your token usage.
 
