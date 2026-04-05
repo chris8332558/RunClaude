@@ -56,6 +56,10 @@ final class RateLimitFetcher: ObservableObject {
     // serialized by the isLoading guard, so access is safe.
     nonisolated(unsafe) private var persistentMaster: Int32 = -1
     nonisolated(unsafe) private var persistentProcess: Process?
+    nonisolated(unsafe) private var processStartTime: Date = .distantPast
+    nonisolated(unsafe) private var lastFetchSucceeded: Bool = true
+
+    private static let processMaxAge: TimeInterval = 30 * 60
 
     deinit {
         if let process = persistentProcess, process.isRunning {
@@ -93,19 +97,31 @@ final class RateLimitFetcher: ObservableObject {
                     return
                 }
 
-                // (Re)start the persistent process if it isn't running.
-                if persistentProcess == nil || !persistentProcess!.isRunning {
+                // (Re)start the persistent process if it isn't running, is too old, or last fetch failed.
+                let processAge = Date().timeIntervalSince(processStartTime)
+                let needsRestart = persistentProcess == nil
+                    || !persistentProcess!.isRunning
+                    || processAge > Self.processMaxAge
+                    || !lastFetchSucceeded
+                if needsRestart {
+                    if let process = persistentProcess, process.isRunning {
+                        process.terminate()
+                        process.waitUntilExit()
+                    }
                     if persistentMaster != -1 {
                         close(persistentMaster)
                         persistentMaster = -1
                     }
+                    debugLog("[RateLimitFetcher] (re)starting process — age=\(Int(processAge))s lastOK=\(lastFetchSucceeded)")
                     let (proc, master) = try await Self.startPersistentProcess(claudePath: claudePath)
                     persistentProcess = proc
                     persistentMaster = master
+                    processStartTime = Date()
                 }
 
                 let raw    = try await Self.fetchUsage(master: persistentMaster)
                 let parsed = Self.parse(raw)
+                self.lastFetchSucceeded = parsed != nil
                 self.info = parsed
                 self.isLoading = false
                 if parsed == nil {
@@ -274,7 +290,7 @@ final class RateLimitFetcher: ObservableObject {
     nonisolated private static func waitFor(
         master: Int32,
         buffer: inout Data,
-        timeout: TimeInterval = 10,
+        timeout: TimeInterval = 5,
         earlyExit: (String) -> Bool = { _ in false }
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
@@ -285,9 +301,7 @@ final class RateLimitFetcher: ObservableObject {
             if let str = String(data: buffer, encoding: .utf8) {
                 // Claude REPL uses "❯" (U+276F) as its prompt character,
                 // often preceded by ANSI escape codes rather than a clean newline.
-                // if str.contains("❯") ||
-                //    str.contains("\n> ") || str.hasSuffix("> ") { return }
-                if str.contains("\n> ") || str.hasSuffix("> ") { return }
+                if str.contains("❯") || str.contains("\n> ") || str.hasSuffix("> ") { return }
                 if earlyExit(str) { return }
             }
 

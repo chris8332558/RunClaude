@@ -1,5 +1,18 @@
 # RunClaude Changelog
 
+## [2026-04-04] — Fix usage-limit fetch getting stuck after long idle
+
+### Fixed
+- `Engine/RateLimitFetcher.swift`: Persistent claude process is now recycled if it is >30 min old, not running, or the previous fetch returned no data. Previously a stale REPL (e.g. showing an update prompt or trust dialog) would silently swallow `/usage` commands and time out every refresh.
+- `Engine/RateLimitFetcher.swift`: `waitFor` prompt detection now checks for `"❯"` (U+276F, the actual Claude REPL prompt) in addition to `"\n> "`. Previously the startup wait always burned the full timeout because the ASCII `>` was never present.
+- `Engine/RateLimitFetcher.swift`: `waitFor` timeout reduced from 10 s to 5 s so a stuck fetch fails faster.
+
+### Added
+- `Engine/RateLimitFetcher.swift`: `processStartTime` and `lastFetchSucceeded` instance vars to track process age and last parse result, used to decide when to recycle the persistent PTY.
+
+### Decisions
+- **Recycle on failed parse, not just on crash**: `isRunning` can be true while the REPL is in an unresponsive interactive state (waiting for a dialog, mid-redraw). Treating a nil parse result as a signal to restart ensures the next refresh gets a clean process rather than retrying into the same bad state.
+
 ## [2026-04-03] — Fix standalone app 10s usage-limit fetch
 
 ### Fixed
