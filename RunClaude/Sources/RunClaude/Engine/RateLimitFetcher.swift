@@ -106,7 +106,8 @@ final class RateLimitFetcher: ObservableObject {
                 if needsRestart {
                     if let process = persistentProcess, process.isRunning {
                         process.terminate()
-                        process.waitUntilExit()
+                        // Don't call waitUntilExit() here — it blocks the MainActor.
+                        // The process will be reaped by the OS after terminate().
                     }
                     if persistentMaster != -1 {
                         close(persistentMaster)
@@ -231,7 +232,8 @@ final class RateLimitFetcher: ObservableObject {
 
         // Wait for the REPL prompt before returning.
         var buffer = Data()
-        try await waitFor(master: master, buffer: &buffer)
+        try await waitFor(master: master, buffer: &buffer,
+                          earlyExit: { $0.contains("❯") || $0.contains("\n> ") || $0.hasSuffix("> ") })
         let startupRaw = String(data: buffer, encoding: .utf8)
             ?? String(data: buffer, encoding: .isoLatin1) ?? ""
         debugLog("[RateLimitFetcher] startup buffer (\(buffer.count) bytes):\n\(startupRaw)\n---end startup---")
@@ -299,9 +301,6 @@ final class RateLimitFetcher: ObservableObject {
             readAvailable(master: master, into: &buffer)
 
             if let str = String(data: buffer, encoding: .utf8) {
-                // Claude REPL uses "❯" (U+276F) as its prompt character,
-                // often preceded by ANSI escape codes rather than a clean newline.
-                if str.contains("❯") || str.contains("\n> ") || str.hasSuffix("> ") { return }
                 if earlyExit(str) { return }
             }
 

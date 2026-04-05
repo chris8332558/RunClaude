@@ -1,5 +1,14 @@
 # RunClaude Changelog
 
+## [2026-04-05] — Fix usage-limit fetch regression introduced in v1.0.1
+
+### Fixed
+- `Engine/RateLimitFetcher.swift`: `waitFor` was exiting too early in `fetchUsage` because the hardcoded `"❯"` prompt check fired on the echoed `"❯ /usage"` line before actual usage data arrived. Moved the prompt detection into `startPersistentProcess`'s `earlyExit` closure so it only applies during startup; `fetchUsage` now correctly waits for `"used"`.
+- `Engine/RateLimitFetcher.swift`: `waitUntilExit()` was being called on the MainActor during process recycling, blocking the UI thread while the old process terminated. Removed it — `terminate()` alone is sufficient.
+
+### Decisions
+- **Prompt detection belongs at the call site, not in `waitFor`**: making `waitFor` caller-agnostic (pure `earlyExit`) avoids future accidental cross-contamination between startup and fetch logic.
+
 ## [2026-04-04] — Fix usage-limit fetch getting stuck after long idle
 
 ### Fixed
